@@ -1,5 +1,5 @@
 import { db } from './db'
-import type { Card, Concept, ReviewLog, Settings, Source } from './schema'
+import type { Card, Concept, Memo, ReviewLog, Settings, Source } from './schema'
 import { DEFAULT_SETTINGS } from './schema'
 
 export const sourcesRepo = {
@@ -66,9 +66,17 @@ export const cardsRepo = {
   async countDue(now: number): Promise<number> {
     return db.cards.where('dueAt').belowOrEqual(now).count()
   },
+  /** The earliest time at which a not-yet-due card becomes due. */
+  async nextDueAt(now = Date.now()): Promise<number | undefined> {
+    const future = await db.cards.where('dueAt').above(now).sortBy('dueAt')
+    return future[0]?.dueAt
+  },
 }
 
 export const reviewLogsRepo = {
+  async get(id: string): Promise<ReviewLog | undefined> {
+    return db.reviewLogs.get(id)
+  },
   async listByCard(cardId: string): Promise<ReviewLog[]> {
     return db.reviewLogs.where('cardId').equals(cardId).reverse().sortBy('reviewedAt')
   },
@@ -90,5 +98,25 @@ export const settingsRepo = {
   },
   async put(settings: Settings): Promise<void> {
     await db.settings.put(settings)
+  },
+}
+
+export const memosRepo = {
+  async list(): Promise<Memo[]> {
+    const all = await db.memos.orderBy('updatedAt').reverse().toArray()
+    // Pinned first, then most recently touched.
+    return all.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
+  },
+  async get(id: string): Promise<Memo | undefined> {
+    return db.memos.get(id)
+  },
+  async put(memo: Memo): Promise<void> {
+    await db.memos.put(memo)
+  },
+  async remove(id: string): Promise<void> {
+    await db.memos.delete(id)
+  },
+  async count(): Promise<number> {
+    return db.memos.count()
   },
 }

@@ -93,7 +93,25 @@ const SettingsSchema = z.object({
   maximumInterval: z.number(),
   questionsPerConcept: z.number(),
   gradingMode: z.enum(['self', 'ai']),
+  questionTypes: z.array(z.enum(['qa', 'cloze', 'choice', 'truefalse', 'feynman'])),
+  sessionOrder: z.enum(['interleave', 'due']),
+  remindersEnabled: z.boolean(),
+  // Added after the first release; older backups simply do not have them.
+  inkColor: z.string().default('#e6e9ef'),
+  inkPressure: z.number().default(1),
   ocrEndpoint: z.string(),
+})
+
+const MemoSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  content: z.string(),
+  handwritingData: ImageDataSchema.nullable().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  pinned: z.boolean(),
+  sourceId: z.string().optional(),
+  cardCount: z.number().optional(),
 })
 
 export const BackupSchema = z.object({
@@ -106,6 +124,7 @@ export const BackupSchema = z.object({
   concepts: z.array(ConceptSchema),
   cards: z.array(CardSchema),
   reviewLogs: z.array(ReviewLogSchema),
+  memos: z.array(MemoSchema).optional(),
   settings: SettingsSchema.optional(),
 })
 
@@ -116,6 +135,7 @@ export interface BackupCounts {
   concepts: number
   cards: number
   reviewLogs: number
+  memos: number
 }
 
 /* ------------------------------------------------------------------ *
@@ -129,12 +149,13 @@ export interface BackupCounts {
  * without its picture would be half-restored. The API key is removed.
  */
 export async function buildBackup(): Promise<Backup> {
-  const [sources, concepts, cards, reviewLogs, settings] = await Promise.all([
+  const [sources, concepts, cards, reviewLogs, settings, memos] = await Promise.all([
     db.sources.toArray(),
     db.concepts.toArray(),
     db.cards.toArray(),
     db.reviewLogs.toArray(),
     db.settings.get('settings'),
+    db.memos.toArray(),
   ])
 
   const serializedSources = await Promise.all(
@@ -154,6 +175,22 @@ export async function buildBackup(): Promise<Backup> {
     }),
   )
 
+  const serializedMemos = await Promise.all(
+    memos.map(async (memo) => {
+      const { handwriting, ...rest } = memo
+      let handwritingData: { mimeType: string; dataUrl: string } | null = null
+
+      if (handwriting && handwriting.size > 0) {
+        handwritingData = {
+          mimeType: handwriting.type || 'image/png',
+          dataUrl: await readAsDataUrl(handwriting),
+        }
+      }
+
+      return { ...rest, handwritingData }
+    }),
+  )
+
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -163,6 +200,7 @@ export async function buildBackup(): Promise<Backup> {
     concepts,
     cards,
     reviewLogs,
+    memos: serializedMemos,
     settings: settings ? { ...settings, apiKey: '' } : undefined,
   }
 }
@@ -189,6 +227,7 @@ export async function downloadBackup(): Promise<BackupCounts> {
     concepts: backup.concepts.length,
     cards: backup.cards.length,
     reviewLogs: backup.reviewLogs.length,
+    memos: backup.memos?.length ?? 0,
   }
 }
 
@@ -235,23 +274,34 @@ export async function importBackup(file: File): Promise<BackupCounts> {
     }),
   )
 
+  const memos = await Promise.all(
+    (backup.memos ?? []).map(async (memo) => {
+      const { handwritingData, ...rest } = memo
+      if (!handwritingData?.dataUrl) return { ...rest, handwriting: undefined }
+
+      const { mimeType, base64 } = splitDataUrl(handwritingData.dataUrl)
+      const handwriting = new Blob([fromBase64(base64)], { type: mimeType })
+      return { ...rest, handwriting }
+    }),
+  )
+
   await db.transaction(
     'rw',
-    db.sources,
-    db.concepts,
-    db.cards,
-    db.reviewLogs,
-    db.settings,
+    [db.sources, db.concepts, db.cards, db.reviewLogs, db.settings, db.memos],
     async () => {
       await db.sources.clear()
       await db.concepts.clear()
       await db.cards.clear()
       await db.reviewLogs.clear()
+      await db.memos.clear()
 
       await db.sources.bulkPut(sources)
       await db.concepts.bulkPut(backup.concepts)
       await db.cards.bulkPut(backup.cards)
       await db.reviewLogs.bulkPut(backup.reviewLogs)
+      if (memos.length > 0) {
+        await db.memos.bulkPut(memos)
+      }
 
       if (backup.settings) {
         const current = await db.settings.get('settings')
@@ -268,5 +318,6 @@ export async function importBackup(file: File): Promise<BackupCounts> {
     concepts: backup.concepts.length,
     cards: backup.cards.length,
     reviewLogs: backup.reviewLogs.length,
+    memos: backup.memos?.length ?? 0,
   }
 }

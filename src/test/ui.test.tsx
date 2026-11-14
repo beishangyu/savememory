@@ -86,6 +86,11 @@ describe('界面流程', () => {
     await screen.findByText('参考答案')
     await user.click(screen.getByRole('button', { name: /重来/ }))
 
+    // 答错后先问归因原因
+    expect(await screen.findByText('这道题为什么没记住？')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: /忘记了/ }))
+
     // 队列变长：总卡片数 + 1
     await waitFor(() => {
       expect(screen.getByText(/进度 2 \/ 8/)).toBeTruthy()

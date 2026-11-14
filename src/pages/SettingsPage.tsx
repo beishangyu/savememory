@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ProviderKind, Settings } from '../db/schema'
+import type { ProviderKind, QuestionType, Settings } from '../db/schema'
 import {
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
@@ -7,9 +7,29 @@ import {
   providerFromSettings,
 } from '../llm'
 import { downloadBackup, importBackup } from '../services/backup'
+import {
+  getReminderPermission,
+  requestReminderPermission,
+} from '../services/reminder'
 import { useSettings } from '../store/settings'
+import { buildLabel } from '../version'
 
 type Draft = Omit<Settings, 'id'>
+
+const QUESTION_TYPE_OPTIONS: Array<{ key: QuestionType; label: string; hint: string }> = [
+  { key: 'qa', label: '问答', hint: '直接提问，最基础的提取' },
+  { key: 'cloze', label: '填空', hint: '挖掉原文中的关键词' },
+  { key: 'choice', label: '单选', hint: '4 个选项，干扰项要像对的' },
+  { key: 'truefalse', label: '判断', hint: '陈述句真假，错误陈述像对的' },
+  { key: 'feynman', label: '费曼追问', hint: '用自己的话讲清 + 指出常见误解' },
+]
+
+const REMINDER_PERMISSION_LABEL: Record<string, string> = {
+  default: '尚未询问',
+  granted: '已允许',
+  denied: '已拒绝',
+  unsupported: '不支持',
+}
 
 export default function SettingsPage() {
   const settings = useSettings((state) => state.settings)
@@ -26,12 +46,18 @@ export default function SettingsPage() {
     maximumInterval: settings.maximumInterval,
     questionsPerConcept: settings.questionsPerConcept,
     gradingMode: settings.gradingMode,
+    questionTypes: settings.questionTypes,
+    sessionOrder: settings.sessionOrder,
+    remindersEnabled: settings.remindersEnabled,
+    inkColor: settings.inkColor,
+    inkPressure: settings.inkPressure,
     ocrEndpoint: settings.ocrEndpoint,
   }))
   const [status, setStatus] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [backupStatus, setBackupStatus] = useState<string | null>(null)
   const [backupBusy, setBackupBusy] = useState(false)
+  const [reminderStatus, setReminderStatus] = useState<string | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -45,6 +71,11 @@ export default function SettingsPage() {
       maximumInterval: settings.maximumInterval,
       questionsPerConcept: settings.questionsPerConcept,
       gradingMode: settings.gradingMode,
+      questionTypes: settings.questionTypes,
+      sessionOrder: settings.sessionOrder,
+      remindersEnabled: settings.remindersEnabled,
+      inkColor: settings.inkColor,
+      inkPressure: settings.inkPressure,
       ocrEndpoint: settings.ocrEndpoint,
     })
   }, [settings])
@@ -94,7 +125,7 @@ export default function SettingsPage() {
     try {
       const counts = await downloadBackup()
       setBackupStatus(
-        `已导出 ${counts.sources} 份材料、${counts.concepts} 个概念、${counts.cards} 张卡片、${counts.reviewLogs} 条复习记录。`,
+        `已导出 ${counts.sources} 份材料、${counts.concepts} 个概念、${counts.cards} 张卡片、${counts.reviewLogs} 条复习记录、${counts.memos} 条备忘录。`,
       )
     } catch (err) {
       setBackupStatus(`导出失败：${err instanceof Error ? err.message : String(err)}`)
@@ -111,7 +142,7 @@ export default function SettingsPage() {
       // Pull the restored settings into the store so the UI reflects them.
       await load()
       setBackupStatus(
-        `已恢复 ${counts.sources} 份材料、${counts.concepts} 个概念、${counts.cards} 张卡片、${counts.reviewLogs} 条复习记录。`,
+        `已恢复 ${counts.sources} 份材料、${counts.concepts} 个概念、${counts.cards} 张卡片、${counts.reviewLogs} 条复习记录、${counts.memos} 条备忘录。`,
       )
     } catch (err) {
       setBackupStatus(`导入失败：${err instanceof Error ? err.message : String(err)}`)
@@ -310,6 +341,126 @@ export default function SettingsPage() {
       </section>
 
       <section className="panel">
+        <h2>出题与练习</h2>
+
+        <div className="field">
+          <span className="field-label">允许出哪些题型</span>
+          <div className="type-grid">
+            {QUESTION_TYPE_OPTIONS.map((option) => {
+              const active = draft.questionTypes.includes(option.key)
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`type-btn ${active ? 'active' : ''}`}
+                  onClick={() => {
+                    const next = active
+                      ? draft.questionTypes.filter((key) => key !== option.key)
+                      : [...draft.questionTypes, option.key]
+                    // At least one format has to stay enabled.
+                    if (next.length === 0) return
+                    update('questionTypes', next)
+                  }}
+                  aria-pressed={active}
+                >
+                  <span className="type-label">{option.label}</span>
+                  <span className="type-hint">{option.hint}</span>
+                </button>
+              )
+            })}
+          </div>
+          <span className="field-help">
+            单选与判断题由本地直接判定，不用调用模型；问答、填空与费曼追问走自由文本作答。
+          </span>
+        </div>
+
+        <div className="field">
+          <span className="field-label">一次会话内的卡片顺序</span>
+          <div className="segmented">
+            <button
+              type="button"
+              className={draft.sessionOrder === 'interleave' ? 'active' : ''}
+              onClick={() => update('sessionOrder', 'interleave')}
+            >
+              交错练习
+            </button>
+            <button
+              type="button"
+              className={draft.sessionOrder === 'due' ? 'active' : ''}
+              onClick={() => update('sessionOrder', 'due')}
+            >
+              按到期顺序
+            </button>
+          </div>
+          <span className="field-help">
+            交错练习会把不同主题的卡片交叉排列，避免把一个概念一口气刷到底。
+          </span>
+        </div>
+
+        <div className="row-actions">
+          <button type="button" className="btn btn-primary" onClick={handleSave}>
+            保存设置
+          </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>到期提醒</h2>
+
+        <div className="field">
+          <span className="field-label">卡片到期时提醒我</span>
+          <div className="segmented">
+            <button
+              type="button"
+              className={draft.remindersEnabled ? 'active' : ''}
+              onClick={() => update('remindersEnabled', true)}
+            >
+              开启
+            </button>
+            <button
+              type="button"
+              className={!draft.remindersEnabled ? 'active' : ''}
+              onClick={() => update('remindersEnabled', false)}
+            >
+              关闭
+            </button>
+          </div>
+          <span className="field-help">
+            提醒只告诉你「有多少张卡片到期」，<strong>不会包含任何卡片内容</strong> ——
+            看一眼通知不算复习，否则会悄悄污染复习计划。
+          </span>
+        </div>
+
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn"
+            onClick={async () => {
+              const permission = await requestReminderPermission()
+              setReminderStatus(
+                permission === 'granted'
+                  ? '已获得通知权限，到期时会提醒你。'
+                  : permission === 'unsupported'
+                    ? '当前浏览器不支持通知，请用应用图标上的徽标查看到期数量。'
+                    : '没有获得通知权限，仍可用应用图标上的徽标查看到期数量。',
+              )
+            }}
+          >
+            授予通知权限
+          </button>
+          <span className="muted small">当前权限：{REMINDER_PERMISSION_LABEL[getReminderPermission()]}</span>
+        </div>
+
+        {reminderStatus && <div className="alert alert-ok">{reminderStatus}</div>}
+
+        <div className="row-actions">
+          <button type="button" className="btn btn-primary" onClick={handleSave}>
+            保存设置
+          </button>
+        </div>
+      </section>
+
+      <section className="panel">
         <h2>数据备份与恢复</h2>
         <p className="muted">
           所有数据都存在这台设备的浏览器里。换手机、清理浏览器数据前，请先导出备份。
@@ -346,7 +497,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="alert alert-warn">
-          <strong>导入会覆盖当前的全部本地数据</strong>（材料、概念、卡片、复习记录）。
+          <strong>导入会覆盖当前的全部本地数据</strong>（材料、概念、卡片、复习记录、备忘录）。
           导入前请先导出一份当前数据以防万一。
         </div>
 
@@ -369,6 +520,9 @@ export default function SettingsPage() {
           </li>
           <li>
             <strong>存储</strong>：IndexedDB（通过 Dexie），数据与图片都留在本机。
+          </li>
+          <li>
+            <strong>版本</strong>：{buildLabel()} —— 用来确认设备上跑的是哪一份代码。
           </li>
         </ul>
       </section>

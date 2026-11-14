@@ -32,6 +32,14 @@ export type ProviderKind = 'openai' | 'gemini'
 /** How the user's answer is turned into an FSRS grade. */
 export type GradingMode = 'self' | 'ai'
 
+/**
+ * How cards are ordered inside one session.
+ *
+ * `interleave` mixes different topics so you never grind one concept to
+ * death; `due` simply takes the most overdue card first.
+ */
+export type SessionOrder = 'interleave' | 'due'
+
 /** A raw material (text note or, in stage 2, an image) that concepts are derived from. */
 export interface Source {
   id: string
@@ -126,6 +134,23 @@ export interface ReviewLog {
   errorCause?: ErrorCause
 }
 
+/** A quick note the user jots down, independent of any study material. */
+export interface Memo {
+  id: string
+  title: string
+  content: string
+  /** A hand-written version of the memo, stored as a PNG blob. */
+  handwriting?: Blob
+  createdAt: number
+  updatedAt: number
+  /** Pinned memos float to the top of the list. */
+  pinned: boolean
+  /** Set once the memo has been turned into study material. */
+  sourceId?: string
+  /** How many cards that conversion produced. */
+  cardCount?: number
+}
+
 /** Application settings, stored locally. No account required. */
 export interface Settings {
   id: 'settings'
@@ -143,6 +168,16 @@ export interface Settings {
   questionsPerConcept: number
   /** Manual self-grading or AI grading of free-text answers. */
   gradingMode: GradingMode
+  /** Which question formats the generator is allowed to use. */
+  questionTypes: QuestionType[]
+  /** How cards are ordered inside a session. */
+  sessionOrder: SessionOrder
+  /** Show a local notification / badge when cards become due. */
+  remindersEnabled: boolean
+  /** Default ink colour for handwriting. */
+  inkColor: string
+  /** How strongly pen pressure affects the line width (0..1). */
+  inkPressure: number
   /**
    * Optional custom OCR endpoint, used when the vision model is unavailable.
    * Empty disables it; the manual "type the text yourself" fallback is used
@@ -162,6 +197,11 @@ export const DEFAULT_SETTINGS: Settings = {
   maximumInterval: 36500,
   questionsPerConcept: 2,
   gradingMode: 'self',
+  questionTypes: ['qa', 'cloze', 'choice', 'truefalse'],
+  sessionOrder: 'interleave',
+  remindersEnabled: false,
+  inkColor: '#e6e9ef',
+  inkPressure: 1,
   ocrEndpoint: '',
 }
 

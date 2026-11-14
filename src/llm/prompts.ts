@@ -28,12 +28,25 @@ export interface ConceptPlanItem {
   statement: string
   /** Target difficulty for each question slot of this concept. */
   slots: Difficulty[]
+  /** Target question format for each question slot of this concept. */
+  formats: QuestionType[]
+}
+
+const FORMAT_LABEL: Record<QuestionType, string> = {
+  qa: 'qa（问答）',
+  cloze: 'cloze（填空）',
+  choice: 'choice（单选）',
+  truefalse: 'truefalse（判断）',
+  feynman: 'feynman（费曼追问）',
 }
 
 export function questionPrompt(concepts: ConceptPlanItem[]): string {
   const blocks = concepts.map((concept) => {
     const slots = concept.slots
-      .map((difficulty, slotIndex) => `  - 第 ${slotIndex + 1} 题，难度=${difficulty}`)
+      .map(
+        (difficulty, slotIndex) =>
+          `  - 第 ${slotIndex + 1} 题，难度=${difficulty}，题型=${FORMAT_LABEL[concept.formats[slotIndex]]}`,
+      )
       .join('\n')
     return `概念 ${concept.index}：${concept.title}\n  陈述：${concept.statement}\n${slots}`
   })
@@ -43,11 +56,23 @@ export function questionPrompt(concepts: ConceptPlanItem[]): string {
 硬性规则：
 1. 一题只考一个概念，禁止复合问题。
 2. 题干尽量 ≤ 20 字，答案尽量 ≤ 50 字。
-3. 题型只用 qa（问答）或 cloze（填空）。
-4. cloze 题干用 {{...}} 标记被挖空的部分，答案就是被挖掉的内容本身。
-5. 每题必须严格符合指定的难度。
-6. 题干中不得出现答案。
-7. 每道概念必须出满下面指定数量的题目。
+3. 每题必须严格符合指定的难度与题型。
+4. 题干中不得出现答案。
+
+各题型的额外要求：
+- qa（问答）：直接提问，答案是完整的表述。
+- cloze（填空）：题干用 {{...}} 标记被挖空的部分，答案就是被挖掉的内容本身。
+- choice（单选）：必须给出 4 个选项（options），只有 1 个正确，correctIndex 是正确项下标。
+  * 干扰项必须「像对的」：可以取自材料里的相邻概念、常见误解、错误的数值或颠倒的因果关系。
+  * 禁止出现「以上都对」「以上都不对」这种废话选项。
+  * 禁止出现明显荒谬或一眼假的选项；干扰项要让人犹豫。
+  * 正确项的位置必须随机，不能总是第一个。
+- truefalse（判断）：题干是一句陈述句，答案只能是「正确」或「错误」。
+  * 出「错误」题时，陈述必须「像对的」：把材料里的真实信息做小幅改动（交换两个概念、改掉数值、颠倒因果、去掉关键限定词），
+    而不是写成一眼假的胡说。
+  * 「正确」题与「错误」题大致各占一半。
+- feynman（费曼追问）：题干是「用自己的话解释 X，并指出一个常见误解」这类要求。
+  答案要包含两个部分：期望的解释要点 + 那个常见误解是什么。
 
 难度定义：
 - easy：直接复述材料原句即可作答。
@@ -57,8 +82,9 @@ export function questionPrompt(concepts: ConceptPlanItem[]): string {
 待出题的概念：
 ${blocks.join('\n\n')}
 
-严格输出如下 JSON（conceptIndex 与 slotIndex 必须与上面一致）：
-{"questions":[{"conceptIndex":0,"slotIndex":0,"type":"qa","prompt":"","answer":"","difficulty":"medium"}]}`
+严格输出如下 JSON（conceptIndex 与 slotIndex 必须与上面一致，type 必须是上面指定的题型）：
+{"questions":[{"conceptIndex":0,"slotIndex":0,"type":"qa","prompt":"","answer":"","difficulty":"medium"}]}
+选择题额外输出 "options":["…","…","…","…"] 和 "correctIndex":0。`
 }
 
 export function balancePrompt(
@@ -110,7 +136,7 @@ export const JUDGE_PROMPT = `你是一个记忆训练系统的判卷器。
 下面是三段内容：
 - 题目：用户被要求回忆的原子概念
 - 参考答案：唯一正确的表述
-- 用户的作答：自由文本，可能不完整、可能有错别字、可能答非所问、也可能完全正确
+- 用户的作答：自由文本（可能是手写图片，需要你识别其中的文字），可能不完整、可能有错别字、可能答非所问、也可能完全正确
 
 请比较用户的作答与参考答案，给出评级。
 

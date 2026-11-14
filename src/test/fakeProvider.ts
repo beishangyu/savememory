@@ -131,17 +131,41 @@ export class FakeProvider implements LLMProvider {
 
     for (const conceptIndex of conceptIndices) {
       const block = prompt.split(`概念 ${conceptIndex}：`)[1]?.split('\n\n')[0] ?? ''
-      const slots = [...block.matchAll(/第 (\d+) 题，难度=(\w+)/g)]
+      const slots = [...block.matchAll(/第 (\d+) 题，难度=(\w+)，题型=(\w+)/g)]
 
       for (const slot of slots) {
-        questions.push({
+        const slotIndex = Number(slot[1]) - 1
+        const difficulty = this.allQuestionsMedium ? 'medium' : slot[2]
+        const type = slot[3]
+        const question: Record<string, unknown> = {
           conceptIndex,
-          slotIndex: Number(slot[1]) - 1,
-          type: 'qa',
+          slotIndex,
+          type,
           prompt: `概念 ${conceptIndex} 的第 ${slot[1]} 个测试问题是什么？`,
           answer: `这是概念 ${conceptIndex} 的参考答案。`,
-          difficulty: this.allQuestionsMedium ? 'medium' : slot[2],
-        })
+          difficulty,
+        }
+
+        if (type === 'choice') {
+          question.options = [
+            `概念 ${conceptIndex} 的正确说法`,
+            `概念 ${conceptIndex} 的相近说法`,
+            `概念 ${conceptIndex} 的常见误解`,
+            `概念 ${conceptIndex} 的错误说法`,
+          ]
+          question.correctIndex = 0
+        } else if (type === 'truefalse') {
+          question.prompt = `概念 ${conceptIndex} 的陈述句（真假未知）。`
+          question.answer = slotIndex % 2 === 0 ? '正确' : '错误'
+        } else if (type === 'cloze') {
+          question.prompt = `概念 ${conceptIndex} 的第 ${slot[1]} 个{{关键词}}。`
+          question.answer = '关键词'
+        } else if (type === 'feynman') {
+          question.prompt = `用自己的话解释概念 ${conceptIndex}，并指出一个常见误解。`
+          question.answer = `解释要点 + 常见误解：${conceptIndex}`
+        }
+
+        questions.push(question)
       }
     }
 

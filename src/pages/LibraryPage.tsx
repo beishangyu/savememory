@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { cardsRepo, conceptsRepo, reviewLogsRepo, sourcesRepo } from '../db/repo'
-import type { Card, Concept, ReviewLog, Source } from '../db/schema'
+import type { Card, Concept, ErrorCause, ReviewLog, Source } from '../db/schema'
 import { formatDate, formatRelative } from '../lib/date'
 import { QUESTION_TYPE_LABEL } from '../llm/prompts'
 
@@ -17,6 +17,30 @@ interface Stats {
   reviewsToday: number
 }
 
+/** Per-concept error-cause tallies, used to flag concepts that need re-teaching. */
+interface CauseTally {
+  forgotten: number
+  confused: number
+  not_understood: number
+}
+
+const CAUSE_LABEL: Record<ErrorCause, string> = {
+  forgotten: '遗忘',
+  confused: '混淆',
+  not_understood: '没理解',
+}
+
+function tallyCauses(logs: ReviewLog[]): Map<string, CauseTally> {
+  const map = new Map<string, CauseTally>()
+  for (const log of logs) {
+    if (!log.errorCause) continue
+    const tally = map.get(log.conceptId) ?? { forgotten: 0, confused: 0, not_understood: 0 }
+    tally[log.errorCause] += 1
+    map.set(log.conceptId, tally)
+  }
+  return map
+}
+
 export default function LibraryPage() {
   const [bundles, setBundles] = useState<Bundle[]>([])
   const [stats, setStats] = useState<Stats>({
@@ -27,6 +51,7 @@ export default function LibraryPage() {
   })
   const [expanded, setExpanded] = useState<string | null>(null)
   const [logs, setLogs] = useState<ReviewLog[]>([])
+  const [causes, setCauses] = useState<Map<string, CauseTally>>(new Map())
 
   useEffect(() => {
     const load = async () => {
@@ -41,10 +66,11 @@ export default function LibraryPage() {
       }
       setBundles(next)
 
-      const allLogs = await reviewLogsRepo.listRecent(30)
+      const allLogs = await reviewLogsRepo.listRecent(200)
       const now = new Date()
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
       setLogs(allLogs)
+      setCauses(tallyCauses(allLogs))
       setStats({
         totalCards: await cardsRepo.count(),
         dueCards: await cardsRepo.countDue(Date.now()),
@@ -105,48 +131,60 @@ export default function LibraryPage() {
 
           {expanded === bundle.source.id && (
             <div className="expand-body">
-              {bundle.concepts.map((concept) => (
-                <div className="concept-block" key={concept.id}>
-                  <div className="concept-title">
-                    {concept.title}
-                    {concept.tags.map((tag) => (
-                      <span className="chip chip-tag" key={tag}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="concept-statement">{concept.statement}</div>
-                  <ul className="card-list">
-                    {bundle.cards
-                      .filter((card) => card.conceptId === concept.id)
-                      .map((card) => (
-                        <li key={card.id} className="card-row">
-                          <div className="card-row-main">
-                            <div className="card-row-prompt">{card.prompt}</div>
-                            <div className="card-row-answer">{card.answer}</div>
-                          </div>
-                          <div className="card-row-meta">
-                            <span className="chip">{QUESTION_TYPE_LABEL[card.type]}</span>
-                            <span className="chip chip-difficulty">
-                              {
-                                card.questionDifficulty === 'easy'
-                                  ? '简单'
-                                  : card.questionDifficulty === 'medium'
-                                    ? '中等'
-                                    : '困难'
-                              }
-                            </span>
-                            <span className="muted small">
-                              {card.reps === 0
-                                ? '未复习'
-                                : `复习 ${card.reps} 次 · ${formatRelative(card.dueAt)}后到期`}
-                            </span>
-                          </div>
-                        </li>
+              {bundle.concepts.map((concept) => {
+                const tally = causes.get(concept.id)
+                return (
+                  <div className="concept-block" key={concept.id}>
+                    <div className="concept-title">
+                      {concept.title}
+                      {concept.tags.map((tag) => (
+                        <span className="chip chip-tag" key={tag}>
+                          {tag}
+                        </span>
                       ))}
-                  </ul>
-                </div>
-              ))}
+                      {tally && tally.not_understood > 0 && (
+                        <span className="chip chip-flag chip-flag-danger">需要重学</span>
+                      )}
+                      {tally && tally.confused > 0 && (
+                        <span className="chip chip-flag chip-flag-warn">易混淆</span>
+                      )}
+                      {tally && tally.forgotten > 0 && (
+                        <span className="chip chip-flag">易遗忘</span>
+                      )}
+                    </div>
+                    <div className="concept-statement">{concept.statement}</div>
+                    <ul className="card-list">
+                      {bundle.cards
+                        .filter((card) => card.conceptId === concept.id)
+                        .map((card) => (
+                          <li key={card.id} className="card-row">
+                            <div className="card-row-main">
+                              <div className="card-row-prompt">{card.prompt}</div>
+                              <div className="card-row-answer">{card.answer}</div>
+                            </div>
+                            <div className="card-row-meta">
+                              <span className="chip">{QUESTION_TYPE_LABEL[card.type]}</span>
+                              <span className="chip chip-difficulty">
+                                {
+                                  card.questionDifficulty === 'easy'
+                                    ? '简单'
+                                    : card.questionDifficulty === 'medium'
+                                      ? '中等'
+                                      : '困难'
+                                }
+                              </span>
+                              <span className="muted small">
+                                {card.reps === 0
+                                  ? '未复习'
+                                  : `复习 ${card.reps} 次 · ${formatRelative(card.dueAt)}后到期`}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>
@@ -160,6 +198,7 @@ export default function LibraryPage() {
               <tr>
                 <th>时间</th>
                 <th>评分</th>
+                <th>错因</th>
                 <th>用时</th>
                 <th>下次到期</th>
               </tr>
@@ -170,6 +209,9 @@ export default function LibraryPage() {
                   <td>{formatDate(log.reviewedAt)}</td>
                   <td>
                     <span className={`chip chip-${log.rating}`}>{log.rating}</span>
+                  </td>
+                  <td className="muted">
+                    {log.errorCause ? CAUSE_LABEL[log.errorCause] : '—'}
                   </td>
                   <td className="muted">{Math.round(log.durationMs / 1000)} 秒</td>
                   <td className="muted">{formatRelative(log.dueAt)}后</td>

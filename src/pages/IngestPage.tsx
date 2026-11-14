@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { ImageDropzone } from '../components/ImageDropzone'
+import { BlobImage } from '../components/BlobImage'
 import { cardsRepo, reviewLogsRepo, sourcesRepo } from '../db/repo'
 import type { Source } from '../db/schema'
 import { formatDateTime, formatRelative } from '../lib/date'
-import { prepareImage, readAsDataUrl, type PreparedImage } from '../lib/image'
+import { prepareImage, type PreparedImage } from '../lib/image'
 import {
   continueWithManualText,
   createImageSource,
@@ -393,28 +394,6 @@ export default function IngestPage() {
       <RecentReviews />
     </div>
   )
-}
-
-/** Renders a stored Blob. */
-function BlobImage({ blob, alt }: { blob: Blob; alt: string }) {
-  const [url, setUrl] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    void readAsDataUrl(blob)
-      .then((dataUrl) => {
-        if (!cancelled) setUrl(dataUrl)
-      })
-      .catch(() => {
-        if (!cancelled) setUrl('')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [blob])
-
-  if (!url) return null
-  return <img src={url} alt={alt} />
 }
 
 function RecentReviews() {  const [logs, setLogs] = useState<Awaited<ReturnType<typeof reviewLogsRepo.listRecent>>>([])

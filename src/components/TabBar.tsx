@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-export type TabKey = 'ingest' | 'study' | 'library' | 'settings'
+export type TabKey = 'ingest' | 'study' | 'library' | 'memo' | 'settings'
 
 /** Large, clear line icons — sized for comfortable thumb tapping. */
 const ICONS: Record<TabKey, ReactNode> = {
@@ -22,6 +22,13 @@ const ICONS: Record<TabKey, ReactNode> = {
       <path d="M16.2 5.4l3.4 1a1.5 1.5 0 0 1 .95 1.9l-3.5 11.7a1.5 1.5 0 0 1-1.9.95l-3.4-1a1.5 1.5 0 0 1-.95-1.9l3.5-11.7a1.5 1.5 0 0 1 1.9-.95z" />
     </>
   ),
+  memo: (
+    <>
+      <path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+      <path d="M14 3v5h5" />
+      <path d="M8.5 12.5h7M8.5 16.5h5" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />
@@ -41,6 +48,7 @@ export function TabBar({ active, onChange, dueCount }: TabBarProps) {
     { key: 'ingest', label: '输入' },
     { key: 'study', label: '学习' },
     { key: 'library', label: '卡片库' },
+    { key: 'memo', label: '备忘' },
     { key: 'settings', label: '设置' },
   ]
 

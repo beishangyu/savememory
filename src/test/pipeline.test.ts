@@ -43,7 +43,10 @@ describe('出题与难度配比', () => {
   it('难度按 30% / 50% / 20% 配比', async () => {
     const provider = new FakeProvider({ allQuestionsMedium: true })
     const concepts = await extractConcepts(provider, '材料')
-    const questions = await generateQuestions(provider, concepts, { questionsPerConcept: 2 })
+    const questions = await generateQuestions(provider, concepts, {
+      questionsPerConcept: 2,
+      formats: ['qa', 'cloze'],
+    })
 
     // 3 概念 × 2 题 = 6 题 → 简单 2 / 中等 3 / 困难 1
     expect(questions).toHaveLength(6)
@@ -56,7 +59,10 @@ describe('出题与难度配比', () => {
   it('每个概念至少生成 1 道题', async () => {
     const provider = new FakeProvider()
     const concepts = await extractConcepts(provider, '材料')
-    const questions = await generateQuestions(provider, concepts, { questionsPerConcept: 1 })
+    const questions = await generateQuestions(provider, concepts, {
+      questionsPerConcept: 1,
+      formats: ['qa', 'cloze'],
+    })
 
     const perConcept = new Map<number, number>()
     for (const question of questions) {
@@ -69,7 +75,10 @@ describe('出题与难度配比', () => {
   it('题干与答案都非空', async () => {
     const provider = new FakeProvider()
     const concepts = await extractConcepts(provider, '材料')
-    const questions = await generateQuestions(provider, concepts, { questionsPerConcept: 2 })
+    const questions = await generateQuestions(provider, concepts, {
+      questionsPerConcept: 2,
+      formats: ['qa', 'cloze'],
+    })
     for (const question of questions) {
       expect(question.prompt.length).toBeGreaterThan(0)
       expect(question.answer.length).toBeGreaterThan(0)
@@ -156,9 +165,16 @@ describe('学习会话', () => {
 
     // 队列变长：原 6 张 + 重新排队的 1 张
     expect(useStudy.getState().queue).toHaveLength(7)
-    expect(useStudy.getState().index).toBe(1)
+    // 答错后先问「为什么没记住」，不直接跳到下一张
+    expect(useStudy.getState().attribution).toBeTruthy()
+    expect(useStudy.getState().index).toBe(0)
     // 答错的卡片仍然要经历「先回忆再看答案」，所以 revealed 复位为 false
     expect(useStudy.getState().revealed).toBe(false)
+
+    // 归因之后才进入下一张
+    await useStudy.getState().attributeCause('forgotten')
+    expect(useStudy.getState().index).toBe(1)
+    expect(useStudy.getState().attribution).toBeNull()
   })
 
   it('答对后卡片不再出现在本次会话队列中', async () => {

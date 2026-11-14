@@ -19,6 +19,9 @@ const RATING_TO_GRADE: Record<number, ReviewGrade> = {
 /**
  * Grade a free-text answer against the reference answer.
  *
+ * `image` carries a hand-written answer: the vision model reads the ink and
+ * judges it exactly like typed text.
+ *
  * The result is validated with Zod before it is returned, including a
  * consistency check between `verdict` and `suggestedRating`. A model that
  * returns an inconsistent pair is asked again with an explicit error message;
@@ -32,13 +35,17 @@ export async function judgeAnswer(
     reference: string
     userAnswer: string
     conceptStatement?: string
+    /** A hand-written answer, as base64. */
+    image?: { base64: string; mimeType: string }
   },
 ): Promise<Judgement> {
   const body = [
     `题目：${input.prompt}`,
     input.conceptStatement ? `所属概念：${input.conceptStatement}` : '',
     `参考答案：${input.reference}`,
-    `用户的作答：${input.userAnswer}`,
+    input.image
+      ? '用户的作答：手写图片，请先识别图片中的文字，再据此判断。'
+      : `用户的作答：${input.userAnswer}`,
   ]
     .filter(Boolean)
     .join('\n')
@@ -47,7 +54,12 @@ export async function judgeAnswer(
     provider,
     [
       { role: 'system', text: SYSTEM_PROMPT },
-      { role: 'user', text: `${JUDGE_PROMPT}\n\n${body}` },
+      {
+        role: 'user',
+        text: `${JUDGE_PROMPT}\n\n${body}`,
+        imageBase64: input.image?.base64,
+        imageMimeType: input.image?.mimeType,
+      },
     ],
     JudgementSchema,
     { temperature: 0, maxTokens: 500 },

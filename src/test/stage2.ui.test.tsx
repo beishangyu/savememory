@@ -179,6 +179,11 @@ describe('AI 评判界面', () => {
 
     // 建议是「简单」，但用户改选「重来」
     await user.click(screen.getByRole('button', { name: /重来/ }))
+
+    // 答错后先问归因原因
+    expect(await screen.findByText('这道题为什么没记住？')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /混淆了/ }))
+
     await waitFor(() => {
       expect(screen.getByText(/进度 2 \//)).toBeTruthy()
     })

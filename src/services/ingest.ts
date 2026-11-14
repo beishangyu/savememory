@@ -206,6 +206,7 @@ export async function generateForSource(
 
     const questions = await generateQuestions(textProvider, rawConcepts, {
       questionsPerConcept: settings.questionsPerConcept,
+      formats: settings.questionTypes,
     })
 
     const cards: Card[] = []

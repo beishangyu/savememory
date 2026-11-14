@@ -117,6 +117,10 @@ body {
   border-color: var(--accent);
 }
 
+.nav-ink {
+  margin-left: 6px;
+}
+
 .nav-badge {
   min-width: 18px;
   padding: 0 5px;
@@ -701,6 +705,535 @@ input[type='range'] {
   color: var(--accent);
 }
 
+/* ---------- option buttons (choice / true-false) ---------- */
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.option-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.option-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.option-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.option-btn:disabled {
+  cursor: default;
+}
+
+.option-key {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.option-text {
+  flex: 1;
+}
+
+.option-btn.correct {
+  border-color: var(--good);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.option-btn.correct .option-key {
+  background: var(--good);
+  border-color: var(--good);
+  color: #0b0e14;
+}
+
+.option-btn.wrong {
+  border-color: var(--again);
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.option-btn.wrong .option-key {
+  background: var(--again);
+  border-color: var(--again);
+  color: #fff;
+}
+
+.option-btn.muted {
+  opacity: 0.5;
+}
+
+/* ---------- error attribution ---------- */
+.attribution {
+  text-align: center;
+}
+
+.attribution-title {
+  margin: 0 0 6px;
+  font-size: 19px;
+}
+
+.attribution-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.attribution-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.attribution-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.attribution-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.attribution-label {
+  font-weight: 600;
+}
+
+.attribution-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* ---------- question type picker ---------- */
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.type-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.type-label {
+  font-weight: 600;
+}
+
+.type-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.chip-flag {
+  margin-left: 6px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip-flag-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.chip-flag-danger {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+/* ---------- global handwriting overlay ---------- */
+.ink-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  /*
+   * The canvas only shows the ink. Pointer events are captured on the
+   * window, so the page keeps its native scrolling on every browser — this
+   * is what guarantees "the finger scrolls, the stylus writes" regardless of
+   * how a vendor reports `pointerType`.
+   */
+  pointer-events: none;
+}
+
+.ink-overlay-panel {
+  position: fixed;
+  z-index: 36;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(10px + env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+}
+
+.ink-overlay-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 8px 10px;
+  background: rgba(24, 28, 36, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.ink-fab {
+  position: fixed;
+  z-index: 37;
+  right: 14px;
+  bottom: calc(86px + env(safe-area-inset-bottom));
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: rgba(27, 32, 42, 0.92);
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.ink-fab:hover {
+  transform: scale(1.06);
+}
+
+.ink-fab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0e14;
+}
+
+@media (min-width: 768px) {
+  .ink-fab {
+    bottom: 22px;
+  }
+}
+
+/* ---------- ink style picker ---------- */
+.ink-style {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.ink-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ink-swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s, border-color 0.15s;
+}
+
+.ink-swatch:hover {
+  transform: scale(1.12);
+}
+
+.ink-swatch.active {
+  border-color: var(--text);
+  transform: scale(1.12);
+}
+
+.ink-swatch-custom {
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.ink-swatch-custom input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  padding: 0;
+  border: none;
+}
+
+.ink-pressure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.ink-pressure input[type='range'] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.ink-pressure-value {
+  min-width: 38px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ink-overlay-style {
+  padding: 8px 12px;
+  background: rgba(24, 28, 36, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.ink-overlay-style .ink-style {
+  margin-top: 0;
+}
+
+.ink-stats {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ink-mode-tag {
+  padding: 2px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ink-build {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+/* ---------- handwriting / stylus ---------- */
+.ink {
+  margin-bottom: 16px;
+}
+
+.ink-canvas-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  overflow: hidden;
+  /* Stop iPad from scrolling or zooming the page while the pen is down. */
+  touch-action: none;
+  overscroll-behavior: contain;
+  /* Text selection is prevented with CSS rather than preventDefault(), which
+     would starve the browser's digitiser samples. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.ink-canvas {
+  display: block;
+  width: 100%;
+  /* The canvas owns every gesture inside it. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: crosshair;
+}
+
+.ink-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.ink-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.memo-ink {
+  margin: 8px 0;
+  padding: 8px;
+  background: #fff;
+  border-radius: 8px;
+  display: inline-block;
+}
+
+.memo-ink img {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+}
+
+/* ---------- diagnostics ---------- */
+.diag-page .diag-summary {
+  margin: 12px 0 0;
+  padding: 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/*
+ * The reference canvas mirrors the real overlay: `position: fixed` and
+ * full-screen. If the device cannot keep a fixed element in place, the
+ * reference line drifts and the measurement shows it.
+ */
+.diag-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  height: 100%;
+  width: 100%;
+  pointer-events: none;
+  background: transparent;
+  border-radius: 0;
+}
+
+/* ---------- memo ---------- */
+.memo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.memo {
+  padding: 14px;
+  margin-bottom: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.memo-pinned {
+  border-color: var(--warn);
+}
+
+.memo-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.memo-title {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.memo-pin {
+  margin-right: 4px;
+}
+
+.memo-content {
+  color: var(--text-dim);
+  font-size: 15px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 8px;
+}
+
+.memo-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
 /* ---------- grade buttons ---------- */
 .grade-row {
   display: grid;
@@ -952,11 +1485,19 @@ input[type='range'] {
     bottom: 0;
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     background: rgba(17, 20, 26, 0.96);
     backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);
-    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+    padding: 4px 2px calc(4px + env(safe-area-inset-bottom));
+  }
+
+  .tab-btn {
+    padding: 8px 1px 6px;
+  }
+
+  .tab-label {
+    font-size: 15px;
   }
 
   .main {
@@ -1016,6 +1557,14 @@ input[type='range'] {
 
   .image-preview img {
     max-height: 220px;
+  }
+
+  .attribution-options {
+    grid-template-columns: 1fr;
+  }
+
+  .option-btn {
+    padding: 16px 14px;
   }
 
   .segmented {

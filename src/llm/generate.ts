@@ -27,6 +27,8 @@ export interface GeneratedQuestion {
 
 export interface GenerationOptions {
   questionsPerConcept: number
+  /** Which question formats may be generated. */
+  formats: QuestionType[]
   temperature?: number
 }
 
@@ -99,65 +101,127 @@ export async function extractConcepts(
 }
 
 /**
- * Build the per-question difficulty plan.
+ * Build the per-question plan: which difficulty and which format every slot
+ * gets.
  *
- * The first generation pass must follow a 30% / 50% / 20% split, so we decide
- * the difficulty of every slot up front (guaranteeing the exact ratio) and ask
- * the model to write questions that match.
+ * The difficulty mix of the first generation pass must follow 30% / 50% / 20%,
+ * so we decide the difficulty of every slot up front (guaranteeing the exact
+ * ratio) and ask the model to write questions that match.
  */
-export function buildDifficultyPlan(
+export function buildQuestionPlan(
   conceptCount: number,
   questionsPerConcept: number,
-): Difficulty[][] {
+  formats: QuestionType[],
+): Array<{ difficulty: Difficulty; type: QuestionType }>[] {
   const total = Math.max(1, conceptCount * questionsPerConcept)
   const easy = Math.round(total * DIFFICULTY_MIX.easy)
   const medium = Math.round(total * DIFFICULTY_MIX.medium)
   const hard = total - easy - medium
 
-  const pool: Difficulty[] = [
+  const difficultyPool: Difficulty[] = [
     ...Array<Difficulty>(easy).fill('easy'),
     ...Array<Difficulty>(medium).fill('medium'),
     ...Array<Difficulty>(hard).fill('hard'),
   ]
   // Fisher-Yates shuffle so concepts are not sorted by difficulty.
-  for (let i = pool.length - 1; i > 0; i -= 1) {
+  for (let i = difficultyPool.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1))
-    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    ;[difficultyPool[i], difficultyPool[j]] = [difficultyPool[j], difficultyPool[i]]
   }
 
-  // Deal round-robin so each concept gets a spread of difficulties.
-  const assigned: Difficulty[][] = Array.from({ length: conceptCount }, () => [])
-  let cursor = 0
+  // Same deal for the formats, so a concept never gets the same format twice
+  // in a row.
+  const formatPool = [...formats]
+  for (let i = formatPool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[formatPool[i], formatPool[j]] = [formatPool[j], formatPool[i]]
+  }
+  if (formatPool.length === 0) formatPool.push('qa')
+
+  // Deal round-robin so each concept gets a spread of difficulties/formats.
+  const assigned: Array<{ difficulty: Difficulty; type: QuestionType }>[] = Array.from(
+    { length: conceptCount },
+    () => [],
+  )
+  let difficultyCursor = 0
+  let formatCursor = 0
   for (let slot = 0; slot < questionsPerConcept; slot += 1) {
     for (let concept = 0; concept < conceptCount; concept += 1) {
-      assigned[concept].push(pool[cursor])
-      cursor += 1
+      assigned[concept].push({
+        difficulty: difficultyPool[difficultyCursor],
+        type: formatPool[formatCursor % formatPool.length],
+      })
+      difficultyCursor += 1
+      formatCursor += 1
     }
   }
   return assigned
 }
 
+/** Normalise a true/false answer to 正确 / 错误. */
+function normaliseVerdict(answer: string): '正确' | '错误' | undefined {
+  const text = answer.trim().toLowerCase()
+  if (/^(正确|对|是|true|t|correct)$/.test(text)) return '正确'
+  if (/^(错误|错|否|不正确|false|f|incorrect|wrong)$/.test(text)) return '错误'
+  return undefined
+}
+
 /** Normalise a raw question so it always satisfies our own invariants. */
-function normaliseQuestion(raw: QuestionOutput): GeneratedQuestion {
+function normaliseQuestion(raw: QuestionOutput, plannedType: QuestionType): GeneratedQuestion {
   let type = raw.type as QuestionType
   let options = raw.options
   let correctIndex = raw.correctIndex
+  let answer = raw.answer.trim()
+
+  const hasChoiceData =
+    Array.isArray(options) &&
+    options.length >= 3 &&
+    options.length <= 6 &&
+    typeof correctIndex === 'number' &&
+    correctIndex >= 0 &&
+    correctIndex < options.length
+  const verdict = normaliseVerdict(answer)
+
+  // The model sometimes returns the right *data* but the wrong `type` label.
+  // Trust the content over the label.
+  if (type === 'qa' || type === 'cloze') {
+    if (plannedType === 'choice' && hasChoiceData) type = 'choice'
+    else if (plannedType === 'truefalse' && verdict) type = 'truefalse'
+  }
 
   if (type === 'cloze' && !raw.prompt.includes('{{')) {
     // The model forgot the blank markers — fall back to a plain question.
     type = 'qa'
   }
+
   if (type === 'choice') {
+    const choiceOptions = Array.isArray(options) ? options : undefined
     const valid =
-      Array.isArray(options) &&
-      options.length >= 2 &&
+      !!choiceOptions &&
+      choiceOptions.length >= 3 &&
+      choiceOptions.length <= 6 &&
       typeof correctIndex === 'number' &&
       correctIndex >= 0 &&
-      correctIndex < options.length
+      correctIndex < choiceOptions.length &&
+      // Distractors must be distinct, otherwise the question is trivial.
+      new Set(choiceOptions.map((option) => option.trim())).size === choiceOptions.length
+
     if (!valid) {
       type = 'qa'
       options = undefined
       correctIndex = undefined
+    } else {
+      options = choiceOptions
+    }
+  }
+
+  if (type === 'truefalse') {
+    if (verdict) {
+      answer = verdict
+      options = undefined
+      correctIndex = undefined
+    } else {
+      type = 'qa'
     }
   }
 
@@ -166,17 +230,26 @@ function normaliseQuestion(raw: QuestionOutput): GeneratedQuestion {
     slotIndex: raw.slotIndex ?? 0,
     type,
     prompt: raw.prompt.trim(),
-    answer: raw.answer.trim(),
-    options,
+    answer,
+    options: options?.map((option) => option.trim()),
     correctIndex,
     difficulty: raw.difficulty,
   }
+}
+
+/** Find the slot a raw question belongs to. */
+function slotFor(raw: QuestionOutput, slots: Slot[]): Slot | undefined {
+  return slots.find(
+    (candidate) =>
+      candidate.conceptIndex === raw.conceptIndex && candidate.slotIndex === (raw.slotIndex ?? 0),
+  )
 }
 
 interface Slot {
   conceptIndex: number
   slotIndex: number
   target: Difficulty
+  format: QuestionType
   question?: GeneratedQuestion
 }
 
@@ -186,16 +259,21 @@ export async function generateQuestions(
   concepts: ConceptOutput[],
   options: GenerationOptions,
 ): Promise<GeneratedQuestion[]> {
-  const plan = buildDifficultyPlan(concepts.length, options.questionsPerConcept)
+  const plan = buildQuestionPlan(
+    concepts.length,
+    options.questionsPerConcept,
+    options.formats,
+  )
 
   const slots: Slot[] = []
   for (let conceptIndex = 0; conceptIndex < concepts.length; conceptIndex += 1) {
-    const difficulties = plan[conceptIndex]
-    for (let slotIndex = 0; slotIndex < difficulties.length; slotIndex += 1) {
+    const assignments = plan[conceptIndex]
+    for (let slotIndex = 0; slotIndex < assignments.length; slotIndex += 1) {
       slots.push({
         conceptIndex,
         slotIndex,
-        target: difficulties[slotIndex],
+        target: assignments[slotIndex].difficulty,
+        format: assignments[slotIndex].type,
       })
     }
   }
@@ -207,14 +285,16 @@ export async function generateQuestions(
       (slot) => slot.conceptIndex >= start && slot.conceptIndex < start + chunkConcepts.length,
     )
 
-    const planItems = chunkConcepts.map((concept, offset) => ({
-      index: start + offset,
-      title: concept.title,
-      statement: concept.statement,
-      slots: chunkSlots
-        .filter((slot) => slot.conceptIndex === start + offset)
-        .map((slot) => slot.target),
-    }))
+    const planItems = chunkConcepts.map((concept, offset) => {
+      const conceptSlots = chunkSlots.filter((slot) => slot.conceptIndex === start + offset)
+      return {
+        index: start + offset,
+        title: concept.title,
+        statement: concept.statement,
+        slots: conceptSlots.map((slot) => slot.target),
+        formats: conceptSlots.map((slot) => slot.format),
+      }
+    })
 
     const result = await callJson(
       provider,
@@ -227,16 +307,12 @@ export async function generateQuestions(
     )
 
     for (const raw of result.questions) {
-      const question = normaliseQuestion(raw)
+      const question = normaliseQuestion(raw, slotFor(raw, chunkSlots)?.format ?? 'qa')
       // The model may echo a concept index from a previous chunk; ignore those.
       if (question.conceptIndex < start || question.conceptIndex >= start + chunkConcepts.length) {
         continue
       }
-      const slot = chunkSlots.find(
-        (candidate) =>
-          candidate.conceptIndex === question.conceptIndex &&
-          candidate.slotIndex === question.slotIndex,
-      )
+      const slot = slotFor(raw, chunkSlots)
       if (!slot || slot.question) continue
       slot.question = question
     }

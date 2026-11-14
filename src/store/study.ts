@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { cardsRepo, reviewLogsRepo } from '../db/repo'
-import type { Card, ReviewGrade, ReviewLog } from '../db/schema'
+import type { Card, ErrorCause, ReviewGrade, ReviewLog } from '../db/schema'
 import { reviewCard } from '../fsrs/scheduler'
 import { judgeAnswer, type Judgement } from '../llm/judge'
 import { providerFromSettings } from '../llm'
 import type { LLMProvider } from '../llm/types'
+import { blobToBase64 } from '../lib/handwriting'
 import { uid } from '../lib/id'
 import { useSettings } from './settings'
 
@@ -15,6 +16,12 @@ export interface SessionResult {
   cardId: string
   grade: ReviewGrade
   dueAt: number
+}
+
+/** The error-cause question shown after a failed answer. */
+export interface PendingAttribution {
+  logId: string
+  cardId: string
 }
 
 interface StudyState {
@@ -43,11 +50,22 @@ interface StudyState {
   /** Why AI grading failed, if it did. */
   judgeError: string | null
 
+  /** The option the user picked for a choice / true-false card. */
+  selectedOption: number | null
+  /** Set after a failed answer, while we ask why it was missed. */
+  attribution: PendingAttribution | null
+
   start: (cards: Card[]) => void
   setUserAnswer: (text: string) => void
   reveal: () => void
+  /** Pick an option on a choice / true-false card (judged locally, no LLM). */
+  selectOption: (optionIndex: number) => void
   /** Ask the AI to grade the typed answer. Falls back to manual grading. */
-  judge: (providerOverride?: LLMProvider) => Promise<void>
+  judge: (providerOverride?: LLMProvider, image?: Blob | null) => Promise<void>
+  /** Record why the answer was missed. */
+  attributeCause: (cause: ErrorCause) => Promise<void>
+  /** Skip the attribution question. */
+  skipAttribution: () => void
   submit: (grade: ReviewGrade) => Promise<void>
   reset: () => void
 }
@@ -66,6 +84,8 @@ export const useStudy = create<StudyState>((set, get) => ({
   judgement: null,
   suggestedGrade: null,
   judgeError: null,
+  selectedOption: null,
+  attribution: null,
 
   start: (cards) =>
     set({
@@ -82,6 +102,8 @@ export const useStudy = create<StudyState>((set, get) => ({
       judgement: null,
       suggestedGrade: null,
       judgeError: null,
+      selectedOption: null,
+      attribution: null,
     }),
 
   setUserAnswer: (text) => set({ userAnswer: text }),
@@ -103,15 +125,42 @@ export const useStudy = create<StudyState>((set, get) => ({
       judgement: null,
       suggestedGrade: null,
       judgeError: null,
+      selectedOption: null,
+      attribution: null,
     }),
 
-  judge: async (providerOverride?: LLMProvider) => {
+  selectOption: (optionIndex) => {
+    const state = get()
+    const card = state.queue[state.index]
+    if (!card || state.revealed) return
+
+    let correct = false
+    if (card.type === 'choice') {
+      correct = card.correctIndex === optionIndex
+    } else if (card.type === 'truefalse') {
+      // Option 0 = 正确, option 1 = 错误.
+      const pickedCorrect = optionIndex === 0
+      correct = pickedCorrect === (card.answer === '正确')
+    } else {
+      return
+    }
+
+    set({
+      selectedOption: optionIndex,
+      revealed: true,
+      suggestedGrade: correct ? 'good' : 'again',
+    })
+  },
+
+  judge: async (providerOverride?: LLMProvider, image?: Blob | null) => {
     const state = get()
     const card = state.queue[state.index]
     if (!card || state.judging || state.busy) return
 
     const answer = state.userAnswer.trim()
-    if (!answer) {
+    const hasImage = !!image && image.size > 0
+
+    if (!answer && !hasImage) {
       // Nothing to grade: show the reference answer and suggest "重来".
       set({
         revealed: true,
@@ -132,6 +181,7 @@ export const useStudy = create<StudyState>((set, get) => ({
         prompt: card.prompt,
         reference: card.answer,
         userAnswer: answer,
+        image: hasImage ? await blobToBase64(image!) : undefined,
       })
 
       set({
@@ -153,6 +203,46 @@ export const useStudy = create<StudyState>((set, get) => ({
         }`,
       })
     }
+  },
+
+  attributeCause: async (cause) => {
+    const state = get()
+    const pending = state.attribution
+    if (!pending) return
+
+    const log = await reviewLogsRepo.get(pending.logId)
+    if (log) {
+      await reviewLogsRepo.put({ ...log, errorCause: cause })
+    }
+
+    set({
+      attribution: null,
+      index: state.index + 1,
+      revealed: false,
+      userAnswer: '',
+      selectedOption: null,
+      shownAt: Date.now(),
+      judging: false,
+      judgement: null,
+      suggestedGrade: null,
+      judgeError: null,
+    })
+  },
+
+  skipAttribution: () => {
+    const state = get()
+    set({
+      attribution: null,
+      index: state.index + 1,
+      revealed: false,
+      userAnswer: '',
+      selectedOption: null,
+      shownAt: Date.now(),
+      judging: false,
+      judgement: null,
+      suggestedGrade: null,
+      judgeError: null,
+    })
   },
 
   submit: async (grade) => {
@@ -210,6 +300,23 @@ export const useStudy = create<StudyState>((set, get) => ({
         }
       }
 
+      // A failed answer is worth understanding: ask why it was missed before
+      // moving on. The answer is recorded on the review log.
+      const failed = grade === 'again' || state.judgement?.verdict === 'incorrect'
+      if (failed) {
+        set({
+          queue,
+          results,
+          requeues: nextRequeues,
+          attribution: { logId: log.id, cardId: card.id },
+          revealed: false,
+          userAnswer: '',
+          selectedOption: null,
+          busy: false,
+        })
+        return
+      }
+
       set({
         queue,
         results,
@@ -217,6 +324,7 @@ export const useStudy = create<StudyState>((set, get) => ({
         index: state.index + 1,
         revealed: false,
         userAnswer: '',
+        selectedOption: null,
         shownAt: Date.now(),
         busy: false,
         judging: false,
