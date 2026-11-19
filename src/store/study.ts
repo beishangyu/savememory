@@ -6,6 +6,7 @@ import { judgeAnswer, type Judgement } from '../llm/judge'
 import { providerFromSettings } from '../llm'
 import type { LLMProvider } from '../llm/types'
 import { blobToBase64 } from '../lib/handwriting'
+import { clozeBlanks, maskCloze } from '../lib/cloze'
 import { uid } from '../lib/id'
 import { useSettings } from './settings'
 
@@ -178,8 +179,13 @@ export const useStudy = create<StudyState>((set, get) => ({
       const provider = providerOverride ?? providerFromSettings(settings)
 
       const judgement = await judgeAnswer(provider, {
-        prompt: card.prompt,
-        reference: card.answer,
+        // A cloze card must not leak its answer: the model sees the same
+        // masked prompt the user does, and the blanked content as reference.
+        prompt: card.type === 'cloze' ? maskCloze(card.prompt) : card.prompt,
+        reference:
+          card.type === 'cloze'
+            ? clozeBlanks(card.prompt).join(' / ') || card.answer
+            : card.answer,
         userAnswer: answer,
         image: hasImage ? await blobToBase64(image!) : undefined,
       })

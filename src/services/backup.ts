@@ -36,6 +36,8 @@ const ConceptSchema = z.object({
   statement: z.string(),
   elaboration: z.string().optional(),
   tags: z.array(z.string()),
+  // Added later; older backups simply do not have them.
+  categories: z.array(z.string()).optional(),
   createdAt: z.number(),
 })
 
@@ -100,6 +102,9 @@ const SettingsSchema = z.object({
   inkColor: z.string().default('#e6e9ef'),
   inkPressure: z.number().default(1),
   ocrEndpoint: z.string(),
+  webdavUrl: z.string().default(''),
+  webdavUsername: z.string().default(''),
+  webdavPassword: z.string().default(''),
 })
 
 const MemoSchema = z.object({
@@ -201,7 +206,10 @@ export async function buildBackup(): Promise<Backup> {
     cards,
     reviewLogs,
     memos: serializedMemos,
-    settings: settings ? { ...settings, apiKey: '' } : undefined,
+    // The API key and the cloud password never leave the device.
+    settings: settings
+      ? { ...settings, apiKey: '', webdavPassword: '' }
+      : undefined,
   }
 }
 
@@ -243,8 +251,11 @@ export async function downloadBackup(): Promise<BackupCounts> {
  * wiping it would be a nasty surprise.
  */
 export async function importBackup(file: File): Promise<BackupCounts> {
-  const raw = await file.text()
+  return restoreBackup(parseBackup(await file.text()))
+}
 
+/** Parses and validates the raw text of a backup. */
+export function parseBackup(raw: string): Backup {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -260,9 +271,11 @@ export async function importBackup(file: File): Promise<BackupCounts> {
       .join('；')
     throw new Error(`备份文件格式不正确：${issues}`)
   }
+  return result.data
+}
 
-  const backup = result.data
-
+/** Writes a validated backup into the database, replacing what is there. */
+export async function restoreBackup(backup: Backup): Promise<BackupCounts> {
   const sources = await Promise.all(
     backup.sources.map(async (source) => {
       const { imageData, ...rest } = source
@@ -307,7 +320,9 @@ export async function importBackup(file: File): Promise<BackupCounts> {
         const current = await db.settings.get('settings')
         await db.settings.put({
           ...backup.settings,
+          // A backup never contains a secret, so the local ones are kept.
           apiKey: current?.apiKey ?? '',
+          webdavPassword: current?.webdavPassword ?? '',
         })
       }
     },

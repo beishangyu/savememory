@@ -1,6 +1,16 @@
 import Dexie, { type Table } from 'dexie'
 import type { Card, Concept, Memo, ReviewLog, Settings, Source } from './schema'
 
+/**
+ * The name of the database.
+ *
+ * In the app it is always `savememory`. The tests hand every file its own
+ * name, because the in-memory IndexedDB is shared per process and parallel
+ * test files would otherwise wipe each other's data.
+ */
+export const DB_NAME =
+  (globalThis as { __SAVEMEMORY_DB_NAME__?: string }).__SAVEMEMORY_DB_NAME__ ?? 'savememory'
+
 export class MemoryDB extends Dexie {
   sources!: Table<Source, string>
   concepts!: Table<Concept, string>
@@ -10,7 +20,7 @@ export class MemoryDB extends Dexie {
   memos!: Table<Memo, string>
 
   constructor() {
-    super('savememory')
+    super(DB_NAME)
     this.version(1).stores({
       sources: 'id, createdAt, generationStatus',
       concepts: 'id, sourceId, [sourceId+index]',

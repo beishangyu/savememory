@@ -1,5 +1,6 @@
 import { DefaultScheduler } from 'ts-fsrs'
 import type { Card, FsrsScheduleStatus, FsrsState, ReviewGrade } from '../db/schema'
+import { startOfDay } from '../lib/date'
 
 export type Scheduler = Awaited<ReturnType<typeof DefaultScheduler>>
 
@@ -60,6 +61,14 @@ export const GRADE_LABEL: Record<ReviewGrade, string> = {
   hard: '困难',
   good: '良好',
   easy: '简单',
+}
+
+/** English labels, used by the keyboard shortcut hints. */
+export const GRADE_LABEL_EN: Record<ReviewGrade, string> = {
+  again: 'Again',
+  hard: 'Hard',
+  good: 'Good',
+  easy: 'Easy',
 }
 
 /** Rough meaning of each grade, shown next to the buttons. */
@@ -268,4 +277,92 @@ export async function previewGrades(
     result[ratingToGrade(item.grade)] = item.card.dueAt.getTime()
   }
   return result
+}
+
+/** One day of the forecast. */
+export interface ForecastDay {
+  /** Epoch ms of the local midnight the day starts at. */
+  dayStart: number
+  /** How many cards are expected to be reviewed that day. */
+  count: number
+}
+
+/** How many simulated reviews a single card may chain before we give up. */
+const MAX_SIMULATION_STEPS = 60
+
+/**
+ * Predict how many cards will be reviewed on each of the next `days` days.
+ *
+ * Every card is walked forward with the scheduler, assuming it is answered
+ * "Good" each time — the average case. A card that comes due inside the
+ * window is counted on that day, and the simulation continues with its next
+ * due date, so a card that keeps coming back is counted on every day it
+ * shows up.
+ *
+ * This is exactly the scheduling the app itself performs, so the numbers line
+ * up with what the user will actually be asked to review.
+ */
+export async function forecastDailyLoad(
+  options: { desiredRetention: number; maximumInterval: number },
+  cards: Card[],
+  days: number,
+  now = new Date(),
+): Promise<ForecastDay[]> {
+  const scheduler = await getScheduler(options)
+  const today = startOfDay(now.getTime())
+
+  const forecast: ForecastDay[] = []
+  for (let index = 0; index < days; index += 1) {
+    forecast.push({ dayStart: today + index * MS_PER_DAY, count: 0 })
+  }
+  const windowEnd = today + days * MS_PER_DAY - 1
+
+  for (const card of cards) {
+    if (card.dueAt > windowEnd) continue
+
+    let current: SchedulerCardInput = toSchedulerCard(card)
+    let due = new Date(card.dueAt)
+
+    for (let step = 0; step < MAX_SIMULATION_STEPS; step += 1) {
+      if (due.getTime() > windowEnd) break
+
+      const dayIndex = Math.floor((startOfDay(due.getTime()) - today) / MS_PER_DAY)
+      if (dayIndex >= 0 && dayIndex < days) forecast[dayIndex].count += 1
+
+      let next: SchedulerCardOut
+      try {
+        const outcome = scheduler.review({
+          card: current,
+          grade: FSRS_RATING.Good,
+          now: due,
+        })
+        next = outcome.card
+      } catch {
+        // A malformed card must not break the whole forecast.
+        break
+      }
+
+      const nextDue = next.dueAt.getTime()
+      // No progress means the simulation would never end.
+      if (nextDue <= due.getTime()) break
+
+      current = {
+        stability: next.stability,
+        stabilityFast: next.stabilityFast ?? current.stabilityFast,
+        difficulty: next.difficulty,
+        state: next.state as FsrsState,
+        scheduleStatus: next.scheduleStatus as FsrsScheduleStatus,
+        dueAt: next.dueAt,
+        lastReviewAt: next.lastReviewAt,
+        cardId: current.cardId,
+        reps: next.reps,
+        lapses: next.lapses,
+        scheduledDays: next.scheduledDays,
+        learningStep: next.learningStep,
+      }
+      due = new Date(nextDue)
+    }
+  }
+
+  return forecast
 }

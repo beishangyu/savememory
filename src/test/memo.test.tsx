@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import Dexie from 'dexie'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import { db } from '../db/db'
+import { db, DB_NAME } from '../db/db'
 import { cardsRepo, memosRepo, settingsRepo } from '../db/repo'
 import { DEFAULT_SETTINGS, type Memo } from '../db/schema'
 import { buildBackup, importBackup } from '../services/backup'
@@ -42,7 +42,7 @@ describe('备忘录', () => {
   it('新建、编辑与删除', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '备忘' }))
     expect(await screen.findByRole('heading', { name: '备忘录' })).toBeTruthy()
@@ -87,7 +87,7 @@ describe('备忘录', () => {
 
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
     await user.click(screen.getByRole('button', { name: '备忘' }))
     await screen.findByRole('heading', { name: '备忘录' })
 
@@ -124,7 +124,7 @@ describe('备忘录', () => {
   it('一键转为学习材料，走完整的出题管道', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '备忘' }))
     await screen.findByRole('heading', { name: '备忘录' })
@@ -158,7 +158,7 @@ describe('数据库升级', () => {
   it('从 v1 升到 v2 不会丢掉已有数据', async () => {
     // 造一个只有 v1 结构的数据库（还没有 memos 表）
     await db.close()
-    const legacy = new Dexie('savememory')
+    const legacy = new Dexie(DB_NAME)
     legacy.version(1).stores({
       sources: 'id, createdAt, generationStatus',
       concepts: 'id, sourceId, [sourceId+index]',

@@ -26,7 +26,7 @@ describe('全局手写', () => {
   it('默认关闭，点击按钮后开启，覆盖层出现在每一页', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     // 默认没有覆盖层
     expect(screen.queryByLabelText('全局手写区域')).toBeNull()
@@ -44,7 +44,7 @@ describe('全局手写', () => {
   it('全局手写只认手写笔：手指不落笔，页面手势不被锁定', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '打开全局手写' }))
     const overlay = await screen.findByLabelText('全局手写区域')
@@ -66,7 +66,7 @@ describe('全局手写', () => {
     // input in the app unfocusable.
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '打开全局手写' }))
     await screen.findByLabelText('全局手写区域')
@@ -87,7 +87,7 @@ describe('全局手写', () => {
   it('全局手写只认手写笔：手指和鼠标都不落笔', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '打开全局手写' }))
     await screen.findByLabelText('全局手写区域')
@@ -148,7 +148,7 @@ describe('全局手写', () => {
     try {
       const user = userEvent.setup()
       render(<App />)
-      await screen.findByRole('heading', { name: '输入材料' })
+      await screen.findByRole('heading', { name: '导入' })
 
       await user.click(screen.getByRole('button', { name: '打开全局手写' }))
       const overlay = (await screen.findByLabelText('全局手写区域')) as HTMLCanvasElement
@@ -164,7 +164,7 @@ describe('全局手写', () => {
   it('可以选择墨色与压感强度，并持久化到设置', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '打开全局手写' }))
     await screen.findByLabelText('全局手写区域')
@@ -190,7 +190,7 @@ describe('全局手写', () => {
   it('工具栏提供撤销 / 清空 / 保存 / 关闭', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '打开全局手写' }))
     await screen.findByLabelText('全局手写区域')

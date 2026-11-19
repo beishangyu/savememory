@@ -1,0 +1,197 @@
+const createData = function(typeNumber, errorCorrectionLevel, dataList) {
+
+    const rsBlocks = QRRSBlock.getRSBlocks(typeNumber, errorCorrectionLevel);
+
+    const buffer = qrBitBuffer();
+
+    for (let i = 0; i < dataList.length; i += 1) {
+      const data = dataList[i];
+      buffer.put(data.getMode(), 4);
+      buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+      data.write(buffer);
+    }
+
+    // calc num max data.
+    let totalDataCount = 0;
+    for (let i = 0; i < rsBlocks.length; i += 1) {
+      totalDataCount += rsBlocks[i].dataCount;
+    }
+
+    if (buffer.getLengthInBits() > totalDataCount * 8) {
+      throw 'code length overflow. ('
+        + buffer.getLengthInBits()
+        + '>'
+        + totalDataCount * 8
+        + ')';
+    }
+
+    // end code
+    if (buffer.getLengthInBits() + 4 <= totalDataCount * 8) {
+      buffer.put(0, 4);
+    }
+
+    // padding
+    while (buffer.getLengthInBits() % 8 != 0) {
+      buffer.putBit(false);
+    }
+
+    // padding
+    while (true) {
+
+      if (buffer.getLengthInBits() >= totalDataCount * 8) {
+        break;
+      }
+      buffer.put(PAD0, 8);
+
+      if (buffer.getLengthInBits() >= totalDataCount * 8) {
+        break;
+      }
+      buffer.put(PAD1, 8);
+    }
+
+    return createBytes(buffer, rsBlocks);
+  };
+
+  _this.addData = function(data, mode) {
+
+    mode = mode || 'Byte';
+
+    let newData = null;
+
+    switch(mode) {
+    case 'Numeric' :
+      newData = qrNumber(data);
+      break;
+    case 'Alphanumeric' :
+      newData = qrAlphaNum(data);
+      break;
+    case 'Byte' :
+      newData = qr8BitByte(data);
+      break;
+    case 'Kanji' :
+      newData = qrKanji(data);
+      break;
+    default :
+      throw 'mode:' + mode;
+    }
+
+    _dataList.push(newData);
+    _dataCache = null;
+  };
+
+  _this.isDark = function(row, col) {
+    if (row < 0 || _moduleCount <= row || col < 0 || _moduleCount <= col) {
+      throw row + ',' + col;
+    }
+    return _modules[row][col];
+  };
+
+  _this.getModuleCount = function() {
+    return _moduleCount;
+  };
+
+  _this.make = function() {
+    if (_typeNumber < 1) {
+      let typeNumber = 1;
+
+      for (; typeNumber < 40; typeNumber++) {
+        const rsBlocks = QRRSBlock.getRSBlocks(typeNumber, _errorCorrectionLevel);
+        const buffer = qrBitBuffer();
+
+        for (let i = 0; i < _dataList.length; i++) {
+          const data = _dataList[i];
+          buffer.put(data.getMode(), 4);
+          buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+          data.write(buffer);
+        }
+
+        let totalDataCount = 0;
+        for (let i = 0; i < rsBlocks.length; i++) {
+          totalDataCount += rsBlocks[i].dataCount;
+        }
+
+        if (buffer.getLengthInBits() <= totalDataCount * 8) {
+          break;
+        }
+      }
+
+      _typeNumber = typeNumber;
+    }
+
+    makeImpl(false, getBestMaskPattern() );
+  };
+
+  _this.createTableTag = function(cellSize, margin) {
+
+    cellSize = cellSize || 2;
+    margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+    let qrHtml = '';
+
+    qrHtml += '<table style="';
+    qrHtml += ' border-width: 0px; border-style: none;';
+    qrHtml += ' border-collapse: collapse;';
+    qrHtml += ' padding: 0px; margin: ' + margin + 'px;';
+    qrHtml += '">';
+    qrHtml += '<tbody>';
+
+    for (let r = 0; r < _this.getModuleCount(); r += 1) {
+
+      qrHtml += '<tr>';
+
+      for (let c = 0; c < _this.getModuleCount(); c += 1) {
+        qrHtml += '<td style="';
+        qrHtml += ' border-width: 0px; border-style: none;';
+        qrHtml += ' border-collapse: collapse;';
+        qrHtml += ' padding: 0px; margin: 0px;';
+        qrHtml += ' width: ' + cellSize + 'px;';
+        qrHtml += ' height: ' + cellSize + 'px;';
+        qrHtml += ' background-color: ';
+        qrHtml += _this.isDark(r, c)? '#000000' : '#ffffff';
+        qrHtml += ';';
+        qrHtml += '"/>';
+      }
+
+      qrHtml += '</tr>';
+    }
+
+    qrHtml += '</tbody>';
+    qrHtml += '</table>';
+
+    return qrHtml;
+  };
+
+  _this.createSvgTag = function(cellSize, margin, alt, title) {
+
+    let opts = {};
+    if (typeof arguments[0] == 'object') {
+      // Called by options.
+      opts = arguments[0];
+      // overwrite cellSize and margin.
+      cellSize = opts.cellSize;
+      margin = opts.margin;
+      alt = opts.alt;
+      title = opts.title;
+    }
+
+    cellSize = cellSize || 2;
+    margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+    // Compose alt property surrogate
+    alt = (typeof alt === 'string') ? {text: alt} : alt || {};
+    alt.text = alt.text || null;
+    alt.id = (alt.text) ? alt.id || 'qrcode-description' : null;
+
+    // Compose title property surrogate
+    title = (typeof title === 'string') ? {text: title} : title || {};
+    title.text = title.text || null;
+    title.id = (title.text) ? title.id || 'qrcode-title' : null;
+
+    const size = _this.getModuleCount() * cellSize + margin * 2;
+    let c, mc, r, mr, qrSvg='', rect;
+
+    rect = 'l' + cellSize + ',0 0,' + cellSize +
+      ' -' + cellSize + ',0 0,-' + cellSize + 'z ';
+
+    qrSvg += '<svg version="1.1" xmlns="http://www.w3.org/2000/svg"';
+    qrSvg += !opts.scalable ? ' width="' + size + 'px" height=

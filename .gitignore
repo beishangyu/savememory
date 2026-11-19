@@ -10,6 +10,9 @@ lerna-debug.log*
 # On-device diagnostic captures (dev only)
 diag/
 
+# Downloaded source word lists (regenerate with `npm run wordlists`)
+.cache/
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

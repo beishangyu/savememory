@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "icons": "node scripts/generate-icons.mjs",
+    "wordlists": "node scripts/build-wordlists.mjs",
     "prebuild": "npm run icons",
     "build": "tsc -b && vite build",
     "lint": "oxlint",

@@ -9,20 +9,25 @@ import IngestPage from './pages/IngestPage'
 import LibraryPage from './pages/LibraryPage'
 import MemoPage from './pages/MemoPage'
 import SettingsPage from './pages/SettingsPage'
+import StatsPage from './pages/StatsPage'
 import StudyPage from './pages/StudyPage'
 import { useSettings } from './store/settings'
 import { useInk } from './store/ink'
+import { useNav } from './store/nav'
+import { useSync } from './store/sync'
 
 const ROUTES: Array<{ key: TabKey; label: string }> = [
-  { key: 'ingest', label: '输入' },
+  { key: 'ingest', label: '导入' },
   { key: 'study', label: '学习' },
   { key: 'library', label: '卡片库' },
+  { key: 'stats', label: '统计' },
   { key: 'memo', label: '备忘' },
   { key: 'settings', label: '设置' },
 ]
 
 export default function App() {
-  const [route, setRoute] = useState<TabKey>('ingest')
+  const route = useNav((state) => state.route)
+  const setRoute = useNav((state) => state.setRoute)
   const load = useSettings((state) => state.load)
   const loaded = useSettings((state) => state.loaded)
   const dueCount = useDueCount()
@@ -51,6 +56,19 @@ export default function App() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // A link that was scanned on the phone carries the sync payload in its
+  // fragment. Pick it up and send the user to the page that can import it.
+  useEffect(() => {
+    const hash = window.location.hash
+    if (!hash.startsWith('#sync=')) return
+    const payload = hash.slice('#sync='.length)
+    if (!payload) return
+    useSync.getState().setPending(payload)
+    setRoute('settings')
+    // Take the payload out of the address bar so a reload does not re-import.
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  }, [])
 
   if (!loaded) {
     return (
@@ -111,6 +129,7 @@ export default function App() {
         {route === 'ingest' && <IngestPage />}
         {route === 'study' && <StudyPage />}
         {route === 'library' && <LibraryPage />}
+        {route === 'stats' && <StatsPage />}
         {route === 'memo' && <MemoPage />}
         {route === 'settings' && <SettingsPage />}
       </main>

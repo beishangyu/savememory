@@ -1,6 +1,11 @@
+// Must come first: it gives this test file its own database name before
+// anything imports `db.ts`.
+import './setup-db'
 import 'fake-indexeddb/auto'
 import { beforeEach } from 'vitest'
 import { useInk } from '../store/ink'
+import { useNav } from '../store/nav'
+import { useScope } from '../store/scope'
 import { DEFAULT_INK_COLOR } from '../lib/handwriting'
 import { resetAllInkSurfaces } from '../hooks/useInkSurface'
 
@@ -39,6 +44,11 @@ if (typeof window !== 'undefined' && typeof nativeClone === 'function') {
 // tests — otherwise the global ink overlay stays enabled and leaks into the
 // next test.
 beforeEach(() => {
+  // The current page and the study scope live in stores, so they survive
+  // between tests — reset them or a test would start on the wrong page.
+  useNav.setState({ route: 'ingest' })
+  useScope.setState({ category: null })
+
   // Strokes live in a module-level registry (so a remount cannot lose them),
   // which means they have to be cleared between tests.
   resetAllInkSurfaces()

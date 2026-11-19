@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { SyncPanel } from '../components/SyncPanel'
+import { WebDavPanel } from '../components/WebDavPanel'
 import type { ProviderKind, QuestionType, Settings } from '../db/schema'
 import {
   DEFAULT_BASE_URL,
@@ -52,6 +54,9 @@ export default function SettingsPage() {
     inkColor: settings.inkColor,
     inkPressure: settings.inkPressure,
     ocrEndpoint: settings.ocrEndpoint,
+    webdavUrl: settings.webdavUrl,
+    webdavUsername: settings.webdavUsername,
+    webdavPassword: settings.webdavPassword,
   }))
   const [status, setStatus] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -77,6 +82,9 @@ export default function SettingsPage() {
       inkColor: settings.inkColor,
       inkPressure: settings.inkPressure,
       ocrEndpoint: settings.ocrEndpoint,
+      webdavUrl: settings.webdavUrl,
+      webdavUsername: settings.webdavUsername,
+      webdavPassword: settings.webdavPassword,
     })
   }, [settings])
 
@@ -156,12 +164,66 @@ export default function SettingsPage() {
       <header className="page-head">
         <h1>设置</h1>
         <p className="muted">
-          所有配置与数据都保存在本机浏览器中，不需要登录。API Key 仅用于向模型发起请求。
+          全部功能都在本机运行，不需要登录，也不需要 API Key。所有数据保存在浏览器本地。
         </p>
       </header>
 
+      {/* ── 记忆调度（核心，放在最显眼处）────────────── */}
       <section className="panel">
-        <h2>模型接口</h2>
+        <h2>记忆调度</h2>
+        <p className="muted small">
+          复习间隔由 FSRS 算法自动安排。这里的参数决定它安排得有多紧。
+        </p>
+
+        <label className="field">
+          <span className="field-label">
+            目标记忆保持率（{draft.desiredRetention.toFixed(2)}）—— 越高，复习越频繁
+          </span>
+          <input
+            type="range"
+            min={0.7}
+            max={0.97}
+            step={0.01}
+            value={draft.desiredRetention}
+            onChange={(event) => update('desiredRetention', Number(event.target.value))}
+          />
+          <span className="field-help">
+            0.90 是通用值：约 90% 的记忆在复习时仍然记得住。想要更扎实就调高。
+          </span>
+        </label>
+
+        <label className="field">
+          <span className="field-label">最大复习间隔（天）</span>
+          <input
+            type="number"
+            min={1}
+            max={36500}
+            value={draft.maximumInterval}
+            onChange={(event) => update('maximumInterval', Number(event.target.value))}
+          />
+          <span className="field-help">
+            一张卡片最长隔多久再出现。熟练的卡片间隔会自然变长，但不会超过这个上限。
+          </span>
+        </label>
+
+        <div className="row-actions">
+          <button type="button" className="btn btn-primary" onClick={handleSave}>
+            保存设置
+          </button>
+        </div>
+      </section>
+
+      {/* ── AI 设置（实验性，默认收起）────────────────── */}
+      <details className="panel experimental">
+        <summary>
+          <span>高级 / 实验性 AI 设置</span>
+          <span className="chip chip-experimental">暂不维护</span>
+        </summary>
+
+        <p className="muted small">
+          这些配置只影响「实验性：AI 材料生成」与「实验性：AI 评判」。
+          不填任何一项，应用依然可以完整使用 —— 批量词表导入与闪卡复习都是纯本地的。
+        </p>
 
         <div className="field">
           <span className="field-label">接口类型</span>
@@ -224,23 +286,36 @@ export default function SettingsPage() {
           />
         </label>
 
-        <div className="row-actions">
-          <button type="button" className="btn btn-primary" onClick={handleSave}>
-            保存设置
-          </button>
-          <button type="button" className="btn" onClick={handleTest} disabled={testing}>
-            {testing ? '测试中…' : '测试连接'}
-          </button>
-        </div>
+        <label className="field">
+          <span className="field-label">自定义 OCR 接口（可选，留空即禁用）</span>
+          <input
+            value={draft.ocrEndpoint}
+            onChange={(event) => update('ocrEndpoint', event.target.value)}
+            placeholder="https://example.com/ocr"
+          />
+          <span className="field-help">
+            视觉模型不可用时会调用它。约定：POST JSON{' '}
+            <code>{'{"image":"data:image/png;base64,…"}'}</code>，期望返回{' '}
+            <code>{'{"text":"识别出的文字"}'}</code> 或纯文本。
+          </span>
+        </label>
 
-        {status && <div className="alert alert-ok">{status}</div>}
-      </section>
-
-      <section className="panel">
-        <h2>学习评判方式</h2>
+        <label className="field">
+          <span className="field-label">每个概念出几道题</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={draft.questionsPerConcept}
+            onChange={(event) => update('questionsPerConcept', Number(event.target.value))}
+          />
+          <span className="field-help">
+            只影响「AI 材料生成」；本地词表导入每个词条固定生成 1~2 张卡。
+          </span>
+        </label>
 
         <div className="field">
-          <span className="field-label">作答后如何打分</span>
+          <span className="field-label">学习页的 AI 评判</span>
           <div className="segmented">
             <button
               type="button"
@@ -258,8 +333,8 @@ export default function SettingsPage() {
             </button>
           </div>
           <span className="field-help">
-            AI 评判模式下，你会先写下答案，AI 给出「正确 / 部分正确 / 错误」和对应档位建议，
-            你可以随时改选其他档位。评判失败会自动退回手动评分，不会替你打分。
+            只有在这里选了 AI 评判，学习页才会出现「实验性：用 AI 评判我的作答」按钮；
+            即使如此，学习页默认仍是经典闪卡流程，需要手动点一次才会启用。
           </span>
         </div>
 
@@ -267,78 +342,13 @@ export default function SettingsPage() {
           <button type="button" className="btn btn-primary" onClick={handleSave}>
             保存设置
           </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>图片处理</h2>
-
-        <label className="field">
-          <span className="field-label">自定义 OCR 接口（可选，留空即禁用）</span>
-          <input
-            value={draft.ocrEndpoint}
-            onChange={(event) => update('ocrEndpoint', event.target.value)}
-            placeholder="https://example.com/ocr"
-          />
-          <span className="field-help">
-            当视觉模型不可用时会调用它。约定：POST JSON{' '}
-            <code>{'{"image":"data:image/png;base64,…"}'}</code>，期望返回{' '}
-            <code>{'{"text":"识别出的文字"}'}</code> 或纯文本。未配置时改为展示原图，由你手动补录文字。
-          </span>
-        </label>
-
-        <div className="row-actions">
-          <button type="button" className="btn btn-primary" onClick={handleSave}>
-            保存设置
+          <button type="button" className="btn" onClick={handleTest} disabled={testing}>
+            {testing ? '测试中…' : '测试连接'}
           </button>
         </div>
-      </section>
 
-      <section className="panel">
-        <h2>调度与出题</h2>
-
-        <label className="field">
-          <span className="field-label">
-            目标记忆保持率（{draft.desiredRetention.toFixed(2)}）越高，复习越频繁
-          </span>
-          <input
-            type="range"
-            min={0.7}
-            max={0.97}
-            step={0.01}
-            value={draft.desiredRetention}
-            onChange={(event) => update('desiredRetention', Number(event.target.value))}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field-label">最大复习间隔（天）</span>
-          <input
-            type="number"
-            min={1}
-            max={36500}
-            value={draft.maximumInterval}
-            onChange={(event) => update('maximumInterval', Number(event.target.value))}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field-label">每个概念生成几道题</span>
-          <input
-            type="number"
-            min={1}
-            max={5}
-            value={draft.questionsPerConcept}
-            onChange={(event) => update('questionsPerConcept', Number(event.target.value))}
-          />
-        </label>
-
-        <div className="row-actions">
-          <button type="button" className="btn btn-primary" onClick={handleSave}>
-            保存设置
-          </button>
-        </div>
-      </section>
+        {status && <div className="alert alert-ok">{status}</div>}
+      </details>
 
       <section className="panel">
         <h2>出题与练习</h2>
@@ -448,7 +458,9 @@ export default function SettingsPage() {
           >
             授予通知权限
           </button>
-          <span className="muted small">当前权限：{REMINDER_PERMISSION_LABEL[getReminderPermission()]}</span>
+          <span className="muted small">
+            当前权限：{REMINDER_PERMISSION_LABEL[getReminderPermission()]}
+          </span>
         </div>
 
         {reminderStatus && <div className="alert alert-ok">{reminderStatus}</div>}
@@ -502,12 +514,16 @@ export default function SettingsPage() {
         </div>
 
         <p className="muted small">
-          导出文件不包含 API Key —— 密钥不会离开你的设备，恢复后请在「模型接口」里重新填写。
-          其它所有内容（含图片）都会完整保存。
+          导出文件不包含 API Key —— 密钥不会离开你的设备，恢复后请在「高级 / 实验性 AI
+          设置」里重新填写。其它所有内容（含图片）都会完整保存。
         </p>
 
         {backupStatus && <div className="alert alert-ok">{backupStatus}</div>}
       </section>
+
+      <SyncPanel />
+
+      <WebDavPanel />
 
       <section className="panel">
         <h2>关于</h2>
@@ -516,10 +532,16 @@ export default function SettingsPage() {
             <strong>调度</strong>：使用 ts-fsrs（FSRS-7）算法，AI 不参与排期。
           </li>
           <li>
-            <strong>学习动作</strong>：默认只显示题干，必须先尝试回忆再看答案。
+            <strong>学习动作</strong>：默认只显示题面，先在脑中回忆，再显示答案。
           </li>
           <li>
             <strong>存储</strong>：IndexedDB（通过 Dexie），数据与图片都留在本机。
+          </li>
+          <li>
+            <strong>多设备</strong>：二维码扫码同步，或通过 WebDAV 备份到自己的网盘。
+          </li>
+          <li>
+            <strong>离线可用</strong>：批量词表导入与闪卡复习完全本地运行，不需要联网。
           </li>
           <li>
             <strong>版本</strong>：{buildLabel()} —— 用来确认设备上跑的是哪一份代码。

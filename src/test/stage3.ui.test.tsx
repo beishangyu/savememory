@@ -47,7 +47,7 @@ describe('单选题的界面流程', () => {
   it('选择选项后展示答案并给出档位建议', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     // 生成一批选择题
     await user.type(

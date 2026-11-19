@@ -1,0 +1,50 @@
+getMaskFunction = function(maskPattern) {
+
+    switch (maskPattern) {
+
+    case QRMaskPattern.PATTERN000 :
+      return function(i, j) { return (i + j) % 2 == 0; };
+    case QRMaskPattern.PATTERN001 :
+      return function(i, j) { return i % 2 == 0; };
+    case QRMaskPattern.PATTERN010 :
+      return function(i, j) { return j % 3 == 0; };
+    case QRMaskPattern.PATTERN011 :
+      return function(i, j) { return (i + j) % 3 == 0; };
+    case QRMaskPattern.PATTERN100 :
+      return function(i, j) { return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0; };
+    case QRMaskPattern.PATTERN101 :
+      return function(i, j) { return (i * j) % 2 + (i * j) % 3 == 0; };
+    case QRMaskPattern.PATTERN110 :
+      return function(i, j) { return ( (i * j) % 2 + (i * j) % 3) % 2 == 0; };
+    case QRMaskPattern.PATTERN111 :
+      return function(i, j) { return ( (i * j) % 3 + (i + j) % 2) % 2 == 0; };
+
+    default :
+      throw 'bad maskPattern:' + maskPattern;
+    }
+  };
+
+  _this.getErrorCorrectPolynomial = function(errorCorrectLength) {
+    let a = qrPolynomial([1], 0);
+    for (let i = 0; i < errorCorrectLength; i += 1) {
+      a = a.multiply(qrPolynomial([1, QRMath.gexp(i)], 0) );
+    }
+    return a;
+  };
+
+  _this.getLengthInBits = function(mode, type) {
+
+    if (1 <= type && type < 10) {
+
+      // 1 - 9
+
+      switch(mode) {
+      case QRMode.MODE_NUMBER    : return 10;
+      case QRMode.MODE_ALPHA_NUM : return 9;
+      case QRMode.MODE_8BIT_BYTE : return 8;
+      case QRMode.MODE_KANJI     : return 8;
+      default :
+        throw 'mode:' + mode;
+      }
+
+    } else if (type < 27) {

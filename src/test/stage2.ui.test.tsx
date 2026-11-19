@@ -59,7 +59,7 @@ describe('图片上传界面', () => {
   it('选择图片后可以识别并生成卡片', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     // 切换到图片模式
     await user.click(screen.getByRole('button', { name: '图片' }))
@@ -89,7 +89,7 @@ describe('图片上传界面', () => {
 
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '图片' }))
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
@@ -120,6 +120,11 @@ describe('图片上传界面', () => {
 })
 
 describe('AI 评判界面', () => {
+  /** AI 评判是实验性功能，默认关闭，需要显式开启。 */
+  const enableAiJudging = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole('button', { name: '实验性：用 AI 评判我的作答' }))
+  }
+
   it('提交答案后展示反馈并高亮建议档位', async () => {
     await seedDemoData()
 
@@ -127,7 +132,7 @@ describe('AI 评判界面', () => {
 
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: /学习/ }))
     await user.click(await screen.findByRole('button', { name: '开始学习' }))
@@ -135,6 +140,13 @@ describe('AI 评判界面', () => {
     // 只显示题干，答案不可见
     await screen.findByRole('heading', { level: 2 })
     expect(screen.queryByText('参考答案')).toBeNull()
+
+    // 默认是经典闪卡流程，没有输入框
+    expect(
+      screen.queryByPlaceholderText('写下你记得的答案，AI 会对照参考答案给出评级…'),
+    ).toBeNull()
+
+    await enableAiJudging(user)
 
     const textarea = screen.getByPlaceholderText('写下你记得的答案，AI 会对照参考答案给出评级…')
     await user.type(textarea, '三次握手')
@@ -167,11 +179,12 @@ describe('AI 评判界面', () => {
 
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
     await user.click(screen.getByRole('button', { name: /学习/ }))
     await user.click(await screen.findByRole('button', { name: '开始学习' }))
 
     await screen.findByRole('heading', { level: 2 })
+    await enableAiJudging(user)
     await user.type(screen.getByPlaceholderText('写下你记得的答案，AI 会对照参考答案给出评级…'), '答案')
     await user.click(screen.getByRole('button', { name: '提交答案' }))
 
@@ -189,17 +202,20 @@ describe('AI 评判界面', () => {
     })
   })
 
-  it('手动自评模式下仍然是「我已回忆，显示答案」', async () => {
+  it('默认是经典闪卡流程：只有「显示答案」，没有 AI 提交按钮', async () => {
     await seedDemoData()
     const user = userEvent.setup()
     render(<App />)
 
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
     await user.click(screen.getByRole('button', { name: /学习/ }))
     await user.click(await screen.findByRole('button', { name: '开始学习' }))
 
     await screen.findByRole('heading', { level: 2 })
-    expect(screen.getByRole('button', { name: '我已回忆，显示答案' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '显示答案' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '提交答案' })).toBeNull()
+    expect(
+      screen.queryByPlaceholderText('写下你记得的答案，AI 会对照参考答案给出评级…'),
+    ).toBeNull()
   })
 })

@@ -34,6 +34,14 @@ export const conceptsRepo = {
   async get(id: string): Promise<Concept | undefined> {
     return db.concepts.get(id)
   },
+  /** Looks up several concepts at once; missing ones come back as `undefined`. */
+  async bulkGet(ids: string[]): Promise<(Concept | undefined)[]> {
+    return db.concepts.bulkGet(ids)
+  },
+  /** Every concept in the library. */
+  async listAll(): Promise<Concept[]> {
+    return db.concepts.toArray()
+  },
   async bulkPut(concepts: Concept[]): Promise<void> {
     await db.concepts.bulkPut(concepts)
   },
@@ -58,6 +66,10 @@ export const cardsRepo = {
   async count(): Promise<number> {
     return db.cards.count()
   },
+  /** Every card in the library. */
+  async listAll(): Promise<Card[]> {
+    return db.cards.toArray()
+  },
   /** Cards whose next review is at or before `now`, oldest due first. */
   async listDue(now: number): Promise<Card[]> {
     const due = await db.cards.where('dueAt').belowOrEqual(now).toArray()
@@ -65,6 +77,13 @@ export const cardsRepo = {
   },
   async countDue(now: number): Promise<number> {
     return db.cards.where('dueAt').belowOrEqual(now).count()
+  },
+  /** Cards due at or before `timestamp` — used for "due today" and forecasts. */
+  async listDueUntil(timestamp: number): Promise<Card[]> {
+    return db.cards.where('dueAt').belowOrEqual(timestamp).toArray()
+  },
+  async countDueUntil(timestamp: number): Promise<number> {
+    return db.cards.where('dueAt').belowOrEqual(timestamp).count()
   },
   /** The earliest time at which a not-yet-due card becomes due. */
   async nextDueAt(now = Date.now()): Promise<number | undefined> {
@@ -88,6 +107,19 @@ export const reviewLogsRepo = {
   },
   async count(): Promise<number> {
     return db.reviewLogs.count()
+  },
+  /** Every review logged at or after `timestamp`, oldest first. */
+  async listSince(timestamp: number): Promise<ReviewLog[]> {
+    const logs = await db.reviewLogs.where('reviewedAt').aboveOrEqual(timestamp).toArray()
+    return logs.sort((a, b) => a.reviewedAt - b.reviewedAt)
+  },
+  /** How many reviews were logged at or after `timestamp`. */
+  async countSince(timestamp: number): Promise<number> {
+    return db.reviewLogs.where('reviewedAt').aboveOrEqual(timestamp).count()
+  },
+  /** How many reviews were logged between `from` and `to` (both inclusive). */
+  async countBetween(from: number, to: number): Promise<number> {
+    return db.reviewLogs.where('reviewedAt').between(from, to, true, true).count()
   },
 }
 

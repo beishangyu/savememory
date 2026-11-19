@@ -1,15 +1,26 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AttributionPanel } from '../components/AttributionPanel'
+import { ClozeText } from '../components/ClozeText'
 import { GradeButtons } from '../components/GradeButtons'
 import { HandwritingCanvas } from '../components/HandwritingCanvas'
 import { cardsRepo, conceptsRepo } from '../db/repo'
 import type { Concept, ReviewGrade } from '../db/schema'
 import { previewGrades } from '../fsrs/scheduler'
+import { answerIsBlankContent } from '../lib/cloze'
 import { formatRelative } from '../lib/date'
 import { QUESTION_TYPE_LABEL } from '../llm/prompts'
 import { useDueCount } from '../hooks/useDueCount'
+import { useStudyShortcuts } from '../hooks/useStudyShortcuts'
+import {
+  cardCategories,
+  loadCardCategories,
+  loadLibraryCategories,
+  tallyCardCategories,
+  type CategoryTally,
+} from '../services/categories'
 import { buildSessionQueue, countTopics } from '../services/session'
 import { useSettings } from '../store/settings'
+import { useScope } from '../store/scope'
 import { selectCurrentCard, selectSessionFinished, useStudy } from '../store/study'
 
 const VERDICT_LABEL = {
@@ -21,7 +32,12 @@ const VERDICT_LABEL = {
 export default function StudyPage() {
   const settings = useSettings((state) => state.settings)
   const dueCount = useDueCount(10_000)
-  const aiMode = settings.gradingMode === 'ai'
+  /**
+   * AI judging is opt-in and off by default — the classic flashcard flow is
+   * the product. The plumbing stays in place for when it is switched back on.
+   */
+  const [aiEnabled, setAiEnabled] = useState(false)
+  const aiMode = settings.gradingMode === 'ai' && aiEnabled
 
   const queue = useStudy((state) => state.queue)
   const index = useStudy((state) => state.index)
@@ -50,9 +66,33 @@ export default function StudyPage() {
   const finished = useStudy(selectSessionFinished)
   const started = queue.length > 0
 
+  /**
+   * Keyboard shortcuts (Space / 1-4) and phone swipes only make sense while
+   * a card is on screen — not on the start screen, the summary, or while the
+   * "why did you miss it" question is up.
+   */
+  const shortcutsActive = started && !finished && !attribution && Boolean(card)
+  const handleGrade = useCallback((grade: ReviewGrade) => {
+    void submit(grade)
+  }, [submit])
+  const shortcuts = useStudyShortcuts({
+    active: shortcutsActive,
+    revealed,
+    busy,
+    onReveal: reveal,
+    onGrade: handleGrade,
+  })
+
   const [concept, setConcept] = useState<Concept | null>(null)
   const [preview, setPreview] = useState<Record<ReviewGrade, number> | null>(null)
   const [starting, setStarting] = useState(false)
+  /** The category the session is limited to; `null` means everything. */
+  const category = useScope((state) => state.category)
+  const setCategory = useScope((state) => state.setCategory)
+  /** Every category in the library, with the number of cards it holds. */
+  const [libraryCategories, setLibraryCategories] = useState<CategoryTally[]>([])
+  /** How many due cards each category holds. */
+  const [categoryCounts, setCategoryCounts] = useState<Map<string, number>>(new Map())
   /** Keyboard or stylus input for the free-text answer. */
   const [inputMode, setInputMode] = useState<'keyboard' | 'ink'>('keyboard')
   /** The hand-written answer as a PNG blob. */
@@ -100,8 +140,12 @@ export default function StudyPage() {
     setStarting(true)
     try {
       const due = await cardsRepo.listDue(Date.now())
+      const categoriesOf = await loadCardCategories(due)
       // Interleaving mixes topics so one concept is never drilled to death.
-      start(buildSessionQueue(due, settings.sessionOrder))
+      const scoped = category
+        ? due.filter((card) => cardCategories(card, categoriesOf).includes(category))
+        : due
+      start(buildSessionQueue(scoped, settings.sessionOrder))
     } finally {
       setStarting(false)
     }
@@ -115,6 +159,41 @@ export default function StudyPage() {
 
   const topicCount = useMemo(() => countTopics(queue), [queue])
 
+  // The categories of the cards that are due right now, so the user can pick
+  // what to work on. The list itself comes from the card library, so the two
+  // always show the same categories.
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const [library, due] = await Promise.all([
+        loadLibraryCategories(),
+        cardsRepo.listDue(Date.now()),
+      ])
+      const categoriesOf = await loadCardCategories(due)
+      if (cancelled) return
+      setLibraryCategories(library)
+      setCategoryCounts(tallyCardCategories(due, categoriesOf))
+      // A category handed over from the card library may have been deleted in
+      // the meantime — drop it rather than filter by something invisible.
+      const selected = useScope.getState().category
+      if (selected && !library.some((entry) => entry.name === selected)) {
+        useScope.getState().setCategory(null)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [finished])
+
+  const studyCategories = useMemo(
+    () => libraryCategories.map((entry) => entry.name),
+    [libraryCategories],
+  )
+
+  const visibleDue =
+    category === null ? dueCount : categoryCounts.get(category) ?? 0
+
   if (!started) {
     return (
       <div className="page">
@@ -126,18 +205,59 @@ export default function StudyPage() {
         </header>
 
         <section className="panel panel-center">
-          <div className="due-big">{dueCount}</div>
-          <p className="muted">张卡片已到期</p>
+          <div className="due-big">{visibleDue}</div>
+          <p className="muted">
+            张卡片已到期{category ? ` · 只学「${category}」` : ''}
+          </p>
+
+          {studyCategories.length > 0 && (
+            <>
+              <p className="muted small study-scope-label">按分类学习</p>
+              <div className="category-bar">
+                <button
+                  type="button"
+                  className={`chip chip-filter${category === null ? ' active' : ''}`}
+                  onClick={() => setCategory(null)}
+                >
+                  全部
+                  <span className="chip-count">{dueCount}</span>
+                </button>
+                {studyCategories.map((name) => {
+                  const total =
+                    libraryCategories.find((entry) => entry.name === name)?.cards ?? 0
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`chip chip-filter${category === name ? ' active' : ''}`}
+                      title={`共 ${total} 张卡片`}
+                      onClick={() => setCategory(category === name ? null : name)}
+                    >
+                      {name}
+                      <span className="chip-count">
+                        {categoryCounts.get(name) ?? 0}/{total}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
           <button
             type="button"
             className="btn btn-primary btn-lg"
             onClick={handleStart}
-            disabled={starting || dueCount === 0}
+            disabled={starting || visibleDue === 0}
           >
-            {starting ? '加载中…' : dueCount === 0 ? '暂无到期卡片' : '开始学习'}
+            {starting ? '加载中…' : visibleDue === 0 ? '暂无到期卡片' : '开始学习'}
           </button>
-          {dueCount === 0 && (
-            <p className="muted small">先去「输入」页面添加材料，或等待下次到期时间。</p>
+          {visibleDue === 0 && (
+            <p className="muted small">
+              {dueCount === 0
+                ? '先去「输入」页面添加材料，或等待下次到期时间。'
+                : '这个分类暂时没有到期的卡片，换一个分类试试。'}
+            </p>
           )}
           {aiMode && (
             <p className="muted small">当前为 AI 评判模式：写下答案后由 AI 给出档位建议。</p>
@@ -160,6 +280,9 @@ export default function StudyPage() {
           <p>
             共复习 <strong>{results.length}</strong> 张卡片。
           </p>
+          {category && (
+            <p className="muted small">本次只复习了「{category}」分类。</p>
+          )}
           {topicCount > 1 && (
             <p className="muted small">覆盖了 {topicCount} 个不同主题。</p>
           )}
@@ -207,6 +330,13 @@ export default function StudyPage() {
   if (!card) return null
 
   const isSelectable = card.type === 'choice' || card.type === 'truefalse'
+  /**
+   * A cloze card already shows the folded content in the prompt, so whatever
+   * sits in `answer` is an extra hint — the translation of the sentence.
+   * Model-generated cloze cards store the blanked content there instead.
+   */
+  const clozeHint =
+    card.type === 'cloze' && !answerIsBlankContent(card.prompt, card.answer)
 
   return (
     <div className="page">
@@ -225,7 +355,16 @@ export default function StudyPage() {
         </button>
       </div>
 
-      <section className="panel card-panel">
+      <section
+        className="panel card-panel"
+        {...shortcuts.touch}
+      >
+        {shortcuts.swipeHint && (
+          <div className={`swipe-badge swipe-${shortcuts.swipeHint}`} aria-hidden="true">
+            {shortcuts.swipeHint === 'again' ? '← 重来' : '良好 →'}
+          </div>
+        )}
+
         <div className="card-meta">
           <span className="chip">{QUESTION_TYPE_LABEL[card.type]}</span>
           <span className="chip chip-difficulty">
@@ -237,10 +376,21 @@ export default function StudyPage() {
                 : '困难'}
           </span>
           {concept && concept.title && <span className="chip">{concept.title}</span>}
+          {concept?.categories?.map((category) => (
+            <span key={category} className="chip chip-category">
+              {category}
+            </span>
+          ))}
           {aiMode && !isSelectable && <span className="chip chip-ai">AI 评判</span>}
         </div>
 
-        <h2 className="prompt">{card.prompt}</h2>
+        <h2 className="prompt">
+          {card.type === 'cloze' ? (
+            <ClozeText prompt={card.prompt} revealed={revealed} />
+          ) : (
+            card.prompt
+          )}
+        </h2>
 
         {card.type === 'choice' && card.options && (
           <div className="option-list">
@@ -352,22 +502,51 @@ export default function StudyPage() {
                     跳过，直接看答案
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  className="btn btn-small btn-ghost experimental-toggle"
+                  onClick={() => setAiEnabled(false)}
+                  disabled={judging}
+                >
+                  关闭 AI 评判
+                </button>
               </>
             ) : (
               <>
-                <label className="field">
-                  <span className="field-label">你的回忆（可选，可以口述后在脑中作答）</span>
-                  <textarea
-                    value={userAnswer}
-                    onChange={(event) => setUserAnswer(event.target.value)}
-                    placeholder="先试着回忆，写下你想到的答案…"
-                    rows={4}
-                    disabled={judging}
-                  />
-                </label>
-                <button type="button" className="btn btn-primary btn-lg" onClick={reveal}>
-                  我已回忆，显示答案
+                {/*
+                  The classic flashcard flow: look at the prompt, recall it in
+                  your head, then reveal. No typing, no model.
+                */}
+                <p className="recall-hint">先在脑中回忆答案，再显示答案。</p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-lg"
+                  onClick={reveal}
+                  disabled={busy}
+                  aria-keyshortcuts="Space"
+                >
+                  显示答案
                 </button>
+                <p className="shortcut-hint">
+                  <kbd>空格</kbd> 显示答案
+                </p>
+
+                {/*
+                  The AI toggle only shows up once the master switch in
+                  「设置 → 高级 / 实验性 AI 设置」 is on — otherwise it would
+                  be a button that silently does nothing.
+                */}
+                {settings.gradingMode === 'ai' && (
+                  <button
+                    type="button"
+                    className="btn btn-small btn-ghost experimental-toggle"
+                    onClick={() => setAiEnabled(true)}
+                    disabled={busy}
+                  >
+                    实验性：用 AI 评判我的作答
+                  </button>
+                )}
               </>
             )}
           </>
@@ -408,9 +587,12 @@ export default function StudyPage() {
 
             {judgeError && <div className="alert alert-error">{judgeError}</div>}
 
-            <div className="answer-box">
-              <span className="field-label">参考答案</span>
+            <div className={`answer-box${clozeHint ? ' is-hint' : ''}`}>
+              <span className="field-label">{clozeHint ? '参考译文' : '参考答案'}</span>
               <p className="answer-text">{card.answer}</p>
+              {clozeHint && (
+                <p className="answer-context">上面高亮的就是空缺处。</p>
+              )}
               {concept?.statement && (
                 <p className="answer-context">所属概念：{concept.statement}</p>
               )}
@@ -427,7 +609,12 @@ export default function StudyPage() {
               preview={preview}
               formatPreview={(timestamp) => `下次 ${formatRelative(timestamp)}后`}
               suggested={suggestedGrade}
+              showShortcuts
             />
+
+            <p className="swipe-hint">
+              左滑重来 · 右滑良好
+            </p>
           </>
         )}
 

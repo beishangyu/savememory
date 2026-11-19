@@ -43,11 +43,14 @@ describe('手写笔输入', () => {
     await seedDemoData()
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: /学习/ }))
     await user.click(await screen.findByRole('button', { name: '开始学习' }))
     await screen.findByRole('heading', { level: 2 })
+
+    // 默认是经典闪卡流程，先开启实验性的 AI 评判
+    await user.click(screen.getByRole('button', { name: '实验性：用 AI 评判我的作答' }))
 
     // 默认是键盘输入
     expect(screen.getByPlaceholderText('写下你记得的答案，AI 会对照参考答案给出评级…')).toBeTruthy()
@@ -68,7 +71,7 @@ describe('手写笔输入', () => {
   it('备忘录页可以切换到手写', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     await user.click(screen.getByRole('button', { name: '备忘' }))
     await screen.findByRole('heading', { name: '备忘录' })

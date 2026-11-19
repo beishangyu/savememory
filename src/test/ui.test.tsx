@@ -24,7 +24,7 @@ beforeEach(async () => {
 describe('界面流程', () => {
   it('默认进入输入页面', async () => {
     render(<App />)
-    expect(await screen.findByRole('heading', { name: '输入材料' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '导入' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '学习' })).toBeTruthy()
   })
 
@@ -33,7 +33,7 @@ describe('界面流程', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     // 进入学习页
     await user.click(screen.getByRole('button', { name: /学习/ }))
@@ -50,13 +50,11 @@ describe('界面流程', () => {
     expect(screen.queryByText('参考答案')).toBeNull()
     expect(screen.queryByText('良好')).toBeNull()
 
-    // 先尝试回忆
-    const textarea = screen.getByPlaceholderText('先试着回忆，写下你想到的答案…')
-    await user.type(textarea, '三次握手')
-    expect((textarea as HTMLTextAreaElement).value).toBe('三次握手')
+    // 默认不要求打字作答，直接在脑中回忆
+    expect(screen.queryByRole('textbox', { name: /你的答案/ })).toBeNull()
 
     // 揭示答案
-    await user.click(screen.getByRole('button', { name: '我已回忆，显示答案' }))
+    await user.click(screen.getByRole('button', { name: '显示答案' }))
     expect(await screen.findByText('参考答案')).toBeTruthy()
 
     // 四档评分按钮
@@ -77,12 +75,12 @@ describe('界面流程', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
     await user.click(screen.getByRole('button', { name: /学习/ }))
     await user.click(await screen.findByRole('button', { name: '开始学习' }))
 
     await screen.findByRole('heading', { level: 2 })
-    await user.click(screen.getByRole('button', { name: '我已回忆，显示答案' }))
+    await user.click(screen.getByRole('button', { name: '显示答案' }))
     await screen.findByText('参考答案')
     await user.click(screen.getByRole('button', { name: /重来/ }))
 
@@ -103,11 +101,11 @@ describe('界面流程', () => {
     expect(before).toBeGreaterThan(0)
 
     const first = render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
     first.unmount()
 
     render(<App />)
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
 
     const after = await cardsRepo.count()
     expect(after).toBe(before)
@@ -118,7 +116,7 @@ describe('界面流程', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await screen.findByRole('heading', { name: '输入材料' })
+    await screen.findByRole('heading', { name: '导入' })
     await user.click(screen.getByRole('button', { name: '卡片库' }))
 
     expect(await screen.findByRole('heading', { name: '卡片库' })).toBeTruthy()
@@ -148,7 +146,7 @@ describe('界面流程', () => {
       // 宽屏：顶部导航
       setPhone(false)
       const desktop = render(<App />)
-      await screen.findByRole('heading', { name: '输入材料' })
+      await screen.findByRole('heading', { name: '导入' })
       expect(screen.getByRole('button', { name: '学习' })).toBeTruthy()
       expect(document.querySelector('.topbar')).toBeTruthy()
       expect(document.querySelector('.tabbar')).toBeNull()
@@ -157,7 +155,7 @@ describe('界面流程', () => {
       // 窄屏：底部 Tab Bar，且不再出现重复的顶部导航
       setPhone(true)
       render(<App />)
-      await screen.findByRole('heading', { name: '输入材料' })
+      await screen.findByRole('heading', { name: '导入' })
 
       const tabbar = document.querySelector('.tabbar')
       expect(tabbar).toBeTruthy()

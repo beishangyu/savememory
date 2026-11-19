@@ -78,7 +78,7 @@ export default defineConfig({
               name: '记忆训练',
               short_name: '记忆训练',
               description:
-                '本地优先的个人记忆训练应用：输入任意材料，自动生成提取练习，并由 FSRS 安排复习。',
+                '纯本地、无需 API Key 的极简背单词工具：粘贴词表生成闪卡，由 FSRS 安排复习。',
               lang: 'zh-CN',
               start_url: '/',
               scope: '/',

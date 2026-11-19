@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ImageDropzone } from '../components/ImageDropzone'
 import { BlobImage } from '../components/BlobImage'
+import { BuiltinListsPanel } from '../components/BuiltinListsPanel'
+import { ImageDropzone } from '../components/ImageDropzone'
 import { cardsRepo, reviewLogsRepo, sourcesRepo } from '../db/repo'
 import type { Source } from '../db/schema'
 import { formatDateTime, formatRelative } from '../lib/date'
@@ -12,6 +13,7 @@ import {
   generateForSource,
   ImageReadError,
 } from '../services/ingest'
+import { importWordList, parseWordList } from '../services/wordlist'
 import { useSettings } from '../store/settings'
 
 interface SourceSummary {
@@ -19,12 +21,22 @@ interface SourceSummary {
   cardCount: number
 }
 
-type InputMode = 'text' | 'image'
+type MaterialMode = 'text' | 'image'
 
 export default function IngestPage() {
   const settings = useSettings((state) => state.settings)
-  const [mode, setMode] = useState<InputMode>('text')
 
+  // ── 批量词表（纯本地解析）──────────────────────────────
+  const [wordList, setWordList] = useState('')
+  const [wordListTitle, setWordListTitle] = useState('')
+  const [wordListCategory, setWordListCategory] = useState('')
+  const [bidirectional, setBidirectional] = useState(true)
+  const [wordListBusy, setWordListBusy] = useState(false)
+  const [wordListNotice, setWordListNotice] = useState<string | null>(null)
+  const [wordListError, setWordListError] = useState<string | null>(null)
+
+  // ── AI 材料生成（实验性）───────────────────────────────
+  const [mode, setMode] = useState<MaterialMode>('text')
   const [text, setText] = useState('')
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
@@ -54,13 +66,67 @@ export default function IngestPage() {
     void refresh()
   }, [])
 
+  /**
+   * The whole point of the local path: paste a word list, get cards.
+   * No API key, no network, no model.
+   */
+  const handleImportWordList = async () => {
+    if (!wordList.trim()) {
+      setWordListError('请先粘贴词表')
+      return
+    }
+
+    setWordListBusy(true)
+    setWordListError(null)
+    setWordListNotice(null)
+
+    try {
+      const parsed = parseWordList(wordList)
+      if (parsed.entries.length === 0) {
+        setWordListError(
+          parsed.skipped.length > 0
+            ? `没有解析出词条。请每行写成「apple - 苹果」或「apple,苹果」这样的格式。`
+            : '没有解析出词条。请每行写成「apple - 苹果」或「apple,苹果」这样的格式。',
+        )
+        return
+      }
+
+      const result = await importWordList(parsed.entries, {
+        bidirectional,
+        settings,
+        title: wordListTitle,
+        rawText: wordList,
+        category: wordListCategory,
+      })
+
+      const parts = [
+        `已生成 ${result.cards.length} 张卡片（${result.concepts.length} 个词条）`,
+      ]
+      if (bidirectional) parts.push('含双向卡片')
+      if (result.clozeCount > 0) parts.push(`含 ${result.clozeCount} 张填空题`)
+      if (wordListCategory.trim()) parts.push(`分类「${wordListCategory.trim()}」`)
+      if (parsed.duplicates > 0) parts.push(`忽略 ${parsed.duplicates} 条重复`)
+      if (parsed.skipped.length > 0) parts.push(`${parsed.skipped.length} 行无法识别已跳过`)
+      setWordListNotice(`${parts.join('，')}。`)
+
+      setWordList('')
+      setWordListTitle('')
+      setWordListCategory('')
+      await refresh()
+    } catch (err) {
+      setWordListError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setWordListBusy(false)
+    }
+  }
+
   const handleGenerateText = async () => {
     if (!text.trim()) {
       setError('请先粘贴一段材料')
       return
     }
     if (!settings.apiKey.trim()) {
-      setError('请先在「设置」里填写 API Key')
+      setError('请先在「设置 → 高级 / 实验性 AI 设置」里填写 API Key')
       return
     }
 
@@ -106,7 +172,7 @@ export default function IngestPage() {
       return
     }
     if (!settings.apiKey.trim()) {
-      setError('请先在「设置」里填写 API Key')
+      setError('请先在「设置 → 高级 / 实验性 AI 设置」里填写 API Key')
       return
     }
 
@@ -184,16 +250,114 @@ export default function IngestPage() {
     await refresh()
   }
 
+  const preview = parseWordList(wordList)
+
   return (
     <div className="page">
       <header className="page-head">
-        <h1>输入材料</h1>
+        <h1>导入</h1>
         <p className="muted">
-          粘贴笔记或上传图片。系统会切分原子概念、生成提取练习题，并交给 FSRS 安排首次复习。
+          粘贴词表，直接生成卡片。全部在本地完成，不需要联网，也不需要 API Key。
         </p>
       </header>
 
-      <section className="panel">
+      {/* ── 批量词表（默认）────────────────────────────── */}
+      <section className="panel">        <h2>批量词表</h2>
+        <p className="muted small">
+          每行一个词条，用 <code>-</code>、<code>,</code>、<code>，</code> 或 Tab
+          分隔英文和中文。例如：
+        </p>
+        <pre className="wordlist-sample">{`apple - 苹果
+banana - 香蕉
+orange,橙子
+I [go] to school every day. - 我每天去上学。`}</pre>
+        <p className="muted small">
+          用 <code>[答案]</code> 或 <code>{'{{c1::答案}}'}</code> 包住的内容会自动变成
+          <strong>填空题</strong>：学习时先把它遮住，让你把空缺处补回来。
+        </p>
+
+        <label className="field">
+          <span className="field-label">标题（可选）</span>
+          <input
+            value={wordListTitle}
+            onChange={(event) => setWordListTitle(event.target.value)}
+            placeholder="例如：四级核心词汇"
+            disabled={wordListBusy}
+          />
+        </label>
+
+        <label className="field">
+          <span className="field-label">分类（可选）</span>
+          <input
+            value={wordListCategory}
+            onChange={(event) => setWordListCategory(event.target.value)}
+            placeholder="例如：四级、口语、易错"
+            disabled={wordListBusy}
+          />
+          <span className="field-help">
+            导入后可以到「卡片库」里按分类筛选；不填也没关系，随时能改。
+          </span>
+        </label>
+
+        <label className="field">
+          <span className="field-label">词表内容</span>
+          <textarea
+            value={wordList}
+            onChange={(event) => setWordList(event.target.value)}
+            placeholder={'apple - 苹果\nbanana - 香蕉\norange,橙子'}
+            rows={10}
+            disabled={wordListBusy}
+          />
+        </label>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={bidirectional}
+            onChange={(event) => setBidirectional(event.target.checked)}
+            disabled={wordListBusy}
+          />
+          <span>生成双向卡片（同时生成「英→中」和「中→英」）</span>
+        </label>
+
+        {wordList.trim() && (
+          <p className="muted small">
+            已识别 {preview.entries.length} 条
+            {preview.skipped.length > 0 && `，${preview.skipped.length} 行待确认`}
+            {preview.duplicates > 0 && `，${preview.duplicates} 条重复`}
+          </p>
+        )}
+
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn btn-primary btn-lg"
+            onClick={handleImportWordList}
+            disabled={wordListBusy}
+          >
+            {wordListBusy ? '生成中…' : '解析并生成卡片'}
+          </button>
+          {bidirectional && <span className="muted small">每条词条会生成 2 张卡片</span>}
+        </div>
+
+        {wordListError && <div className="alert alert-error">{wordListError}</div>}
+        {wordListNotice && <div className="alert alert-ok">{wordListNotice}</div>}
+      </section>
+
+      <BuiltinListsPanel bidirectional={bidirectional} onImported={() => void refresh()} />
+
+      {/* ── AI 材料生成（实验性，收起）─────────────────── */}
+      <details className="panel experimental">
+        <summary>
+          <span>高级：AI 材料生成</span>
+          <span className="chip chip-experimental">实验性功能，暂不维护</span>
+        </summary>
+
+        <p className="muted small">
+          让模型从一段材料或一张图片里自动提取概念并出题。需要 API Key，
+          且效果依赖模型能力 —— 日常背单词用上面的批量词表就够了。
+        </p>
+
         <div className="segmented mode-switch">
           <button
             type="button"
@@ -290,22 +454,14 @@ export default function IngestPage() {
           </>
         )}
 
-        {error && <div className="alert alert-error">{error}</div>}
-        {notice && <div className="alert alert-ok">{notice}</div>}
-      </section>
-
-      {fallback && (
-        <section className="panel">
-          <h2>手动补录图片文字</h2>
-          <p className="muted">
-            当前模型无法直接读图，或网络请求失败。请对照下面的原图，把图片里的文字内容输入进来，
-            之后会继续走「文字 → 概念 → 卡片」的正常流程。
-          </p>
+        {fallback && (
           <div className="image-preview">
             <BlobImage blob={fallback.blob} alt="原图" />
           </div>
+        )}
+        {fallback && (
           <label className="field">
-            <span className="field-label">图片中的文字内容</span>
+            <span className="field-label">手动补录图片文字</span>
             <textarea
               value={fallbackText}
               onChange={(event) => setFallbackText(event.target.value)}
@@ -314,6 +470,8 @@ export default function IngestPage() {
               disabled={busy}
             />
           </label>
+        )}
+        {fallback && (
           <div className="row-actions">
             <button
               type="button"
@@ -335,9 +493,13 @@ export default function IngestPage() {
               取消
             </button>
           </div>
-        </section>
-      )}
+        )}
 
+        {error && <div className="alert alert-error">{error}</div>}
+        {notice && <div className="alert alert-ok">{notice}</div>}
+      </details>
+
+      {/* ── 已有材料 ────────────────────────────────────── */}
       <section className="panel">
         <h2>材料与卡片</h2>
         {summaries.length === 0 ? (
@@ -396,7 +558,8 @@ export default function IngestPage() {
   )
 }
 
-function RecentReviews() {  const [logs, setLogs] = useState<Awaited<ReturnType<typeof reviewLogsRepo.listRecent>>>([])
+function RecentReviews() {
+  const [logs, setLogs] = useState<Awaited<ReturnType<typeof reviewLogsRepo.listRecent>>>([])
 
   useEffect(() => {
     void reviewLogsRepo.listRecent(10).then(setLogs)

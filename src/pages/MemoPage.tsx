@@ -107,7 +107,7 @@ export default function MemoPage() {
       return
     }
     if (!settings.apiKey.trim()) {
-      setError('请先在「设置」里填写 API Key')
+      setError('把备忘录转成卡片需要 AI，请在「设置 → 高级 / 实验性 AI 设置」里填写 API Key')
       return
     }
 

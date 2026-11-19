@@ -71,6 +71,13 @@ export interface Concept {
   statement: string
   elaboration?: string
   tags: string[]
+  /**
+   * User-defined categories, used to organise the library.
+   *
+   * Unlike `tags` (topic labels produced by the model), these are chosen by
+   * the user — 「四级」「口语」「易错」and so on.
+   */
+  categories?: string[]
   createdAt: number
 }
 
@@ -184,6 +191,18 @@ export interface Settings {
    * instead.
    */
   ocrEndpoint: string
+  /**
+   * WebDAV address for the cloud backup, e.g. `https://dav.jianguoyun.com/dav/`.
+   * Empty disables the cloud backup.
+   */
+  webdavUrl: string
+  /** WebDAV account name. */
+  webdavUsername: string
+  /**
+   * WebDAV password. Like the API key it never leaves the device and is not
+   * part of an exported backup.
+   */
+  webdavPassword: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -203,6 +222,9 @@ export const DEFAULT_SETTINGS: Settings = {
   inkColor: '#e6e9ef',
   inkPressure: 1,
   ocrEndpoint: '',
+  webdavUrl: '',
+  webdavUsername: '',
+  webdavPassword: '',
 }
 
 /** Target difficulty mix for the first generation pass. */
