@@ -9,6 +9,15 @@ import pkg from './package.json' with { type: 'json' }
 const isTest = process.env.VITEST === 'true'
 
 /**
+ * Where the app is served from.
+ *
+ * A domain root needs `/` (the default). A sub-path — a GitHub Pages project
+ * site, for example — is built with `BASE=/savememory/ npm run build`, and the
+ * manifest, the icons and the service worker all follow it.
+ */
+const base = process.env.BASE ?? '/'
+
+/**
  * Dev-only collector for on-device diagnostics.
  *
  * A device posts the raw pointer/scroll log to `/__diag`; it is appended to
@@ -55,6 +64,7 @@ type Middleware = (
 ) => void
 
 export default defineConfig({
+  base,
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
@@ -80,9 +90,9 @@ export default defineConfig({
               description:
                 '纯本地、无需 API Key 的极简背单词工具：粘贴词表生成闪卡，由 FSRS 安排复习。',
               lang: 'zh-CN',
-              start_url: '/',
-              scope: '/',
-              id: '/',
+              start_url: base,
+              scope: base,
+              id: base,
               display: 'standalone',
               orientation: 'any',
               background_color: '#0f1115',
@@ -111,7 +121,8 @@ export default defineConfig({
             },
             workbox: {
               globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-              navigateFallback: 'index.html',
+              // Must match the precache key, which carries the base prefix.
+              navigateFallback: `${base}index.html`,
               cleanupOutdatedCaches: true,
               clientsClaim: true,
               skipWaiting: true,

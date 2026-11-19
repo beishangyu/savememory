@@ -152,6 +152,8 @@ savememory/
 
 scripts/
 └── generate-icons.mjs         # 无依赖 PNG 生成器，产出 PWA 图标
+
+.github/workflows/deploy.yml   # 推送到 main 时自动构建并发布到 GitHub Pages
 ```
 
 ---
@@ -627,9 +629,72 @@ dist/assets/kaoyan-Dyve2_dU.js     225 kB (gzip 105 kB)
 
 ---
 
-## 八、部署到 Vercel
+## 八、部署
 
-项目是纯静态 SPA，`dist/` 直接托管即可。
+这个项目是**纯静态 SPA**：`npm run build` 产出的 `dist/` 全是 JS / CSS / 图标 / manifest / Service Worker，
+没有后端、没有数据库服务器。所有学习数据都保存在**每个访客自己浏览器的 IndexedDB** 里，
+部署只是把 `dist/` 放到一个能通过 HTTPS 访问的地方。
+
+### 0. 先构建、再本地预览
+
+```bash
+npm ci
+npm run build      # 需要 Node 24（ts-fsrs 声明 engines.node >= 24）
+npm run preview    # http://localhost:4173，跑的就是 dist/
+```
+
+`dist/` 里这些文件就是全部要上传的东西：
+
+```
+dist/
+├── index.html
+├── assets/              # 主 bundle + 词库懒加载 chunk
+├── manifest.webmanifest
+├── sw.js                # Service Worker（离线 / PWA 安装）
+├── workbox-*.js
+└── icon-*.png, favicon.svg, apple-touch-icon.png
+```
+
+### 1. GitHub Pages（推荐，仓库里已经带了工作流）
+
+`.github/workflows/deploy.yml` 会在每次推送到 `main` 时自动构建并发布：
+
+1. 推送到 GitHub 的 `main` 分支。
+2. 仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**（只需设置一次）。
+3. 等 Actions 里的 *Deploy to GitHub Pages* 跑完，地址是：
+
+```
+https://<用户名>.github.io/savememory/
+```
+
+工作流会自动算好子路径：项目仓库用 `BASE=/<仓库名>/`，`<用户名>.github.io` 仓库用根路径 `/`。
+它还会检查 `index.html` 里的资源确实带上了这个前缀，避免发布出一个整页空白。
+
+想手动构建一份放到 Pages 上：
+
+```bash
+# bash / macOS / Linux / GitHub Actions
+BASE=/savememory/ npm run build
+```
+
+```powershell
+# Windows PowerShell
+$env:BASE="/savememory/"
+npm run build
+Remove-Item Env:BASE
+```
+
+### 2. Netlify / Vercel / Cloudflare Pages
+
+这些平台都把站点放在**域名根**，不需要设置 `BASE`。
+
+| 平台 | 构建命令 | 输出目录 | Node |
+| --- | --- | --- | --- |
+| **Vercel** | `npm run build` | `dist` | 24（Project → Settings → Node.js Version） |
+| **Netlify** | `npm run build` | `dist` | 24（环境变量 `NODE_VERSION=24`，或提交 `.nvmrc`） |
+| **Cloudflare Pages** | `npm run build` | `dist` | 24（环境变量 `NODE_VERSION=24`） |
+
+Vercel CLI 也可以直接传：
 
 ```bash
 npm i -g vercel
@@ -637,39 +702,50 @@ vercel            # 首次会引导登录
 vercel --prod     # 生产部署
 ```
 
-或者在 Vercel 控制台里：
+不需要配置 SPA 重写规则：页面切换是应用内部状态（`useNav`），`index.html` 之外的路径只有二维码同步用的
+`#sync=` 片段 —— 它属于同一个 URL，不会被服务器看到。
 
-| 配置项 | 值 |
-| --- | --- |
-| Framework Preset | Vite |
-| Build Command | `npm run build` |
-| Output Directory | `dist` |
-| Node.js Version | 20 或更高（`ts-fsrs` 要求 ≥ 24，开发机请用 24） |
+### 3. 部署到子路径时：`BASE`
 
-`vite.config.ts` 里所有资源路径都是根相对（`/assets/…`、`/manifest.webmanifest`），没有配置 `base` —— 部署到域名根目录即可。若要部署到子路径，记得设置 `base` 并同步修改 manifest 的 `start_url` / `scope`。
+`vite.config.ts` 顶部读环境变量 `BASE`（默认 `/`）。它不只影响 `index.html` 里的资源地址，还会同步到：
 
-### 部署到 Vercel
+- manifest 的 `start_url` / `scope` / `id`
+- Service Worker 的 `navigateFallback`（离线时回退到 `/<base>/index.html`）
+- 预缓存清单里的所有 URL
 
-项目是纯静态 SPA，`dist/` 直接托管即可。
+所以**子路径部署只需要设置一个环境变量**，不用手改 manifest。反过来，部署在域名根时不要设置 `BASE`。
+
+### 4. 部署之后要注意的三件事
+
+**① 数据不会跟着域名走。** IndexedDB 是按「源」隔离的，`localhost:5173` 里的卡片不会出现在新域名下。
+迁移方法：旧站点 **设置 → 数据备份与恢复 → 导出备份**，在新站点导入；或者用「扫码同步」/ WebDAV 云备份。
+
+**② Service Worker 需要 HTTPS。** 除了 `localhost`，HTTP 下浏览器不给注册 Service Worker ——
+PWA 安装、离线打开都会失效。上面这些平台默认就是 HTTPS，没问题；
+自己用 `npm run preview -- --host` 在局域网里跑则**没有**离线能力（见下一节）。
+
+**③ 更新是自动的。** 配置是 `registerType: 'autoUpdate'` + `skipWaiting` / `clientsClaim`，
+重新部署后用户下次打开页面就会拿到新版，旧缓存由 `cleanupOutdatedCaches` 清理。
+如果某台设备仍停在旧版，关掉页面重开一次（或强制刷新）即可。
+
+### 5. 只在自己局域网用（不发布到公网）
 
 ```bash
-npm i -g vercel
-vercel            # 首次会引导登录
-vercel --prod     # 生产部署
+npm run build
+npm run preview -- --host     # http://<局域网 IP>:4173，手机/平板同 Wi-Fi 可访问
 ```
 
-或者在 Vercel 控制台里：
+能用，但如前所述**没有 Service Worker**：不能「添加到主屏幕」离线使用，每次打开都要连到这台电脑。
+想长期在平板上用，两个办法：
 
-| 配置项 | 值 |
-| --- | --- |
-| Framework Preset | Vite |
-| Build Command | `npm run build` |
-| Output Directory | `dist` |
-| Node.js Version | 20 或更高（`ts-fsrs` 要求 ≥ 24，开发机请用 24） |
+- 部署到上面的静态托管（最省事，手机随时能打开）；
+- 或者用 Cloudflare Tunnel / Tailscale 之类的 HTTPS 隧道把这台电脑的服务暴露成一个 HTTPS 地址。
 
-`vite.config.ts` 里所有资源路径都是根相对（`/assets/…`、`/manifest.webmanifest`），没有配置 `base` —— 部署到域名根目录即可。若要部署到子路径，记得设置 `base` 并同步修改 manifest 的 `start_url` / `scope`。
+### 6. 隐私说明
 
-**注意**：Service Worker 需要 HTTPS（`localhost` 除外），Vercel 默认提供 HTTPS，没问题。
+站点本身是公开的静态文件，但**没有后端**：每个访客的数据只写在他自己的浏览器里，互相看不见，
+更不会上传到服务器。如果连「别人能打开这个页面」都不想要，可以在托管平台加访问控制
+（例如 Cloudflare Access），或者只在局域网 / 隧道里运行。
 
 ### 贡献者：本地开发
 
